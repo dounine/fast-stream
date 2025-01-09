@@ -1,6 +1,6 @@
 use crate::endian::Endian;
 use std::io;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -8,6 +8,21 @@ pub struct Stream<T> {
     pub inner: T,
     pub endian: Endian,
     pub pins: Vec<u64>,
+}
+impl<T> Stream<T> {
+    pub fn with_endian(&mut self, endian: Endian) -> &mut Self {
+        self.endian = endian;
+        self
+    }
+}
+impl<T: Default> Stream<T> {
+    pub fn empty() -> Stream<T> {
+        Self {
+            inner: T::default(),
+            endian: Endian::Little,
+            pins: vec![],
+        }
+    }
 }
 #[allow(dead_code)]
 impl<T> Stream<T> {
