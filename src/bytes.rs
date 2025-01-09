@@ -105,6 +105,16 @@ macro_rules! enum_to_bytes {
 // pub enum A {
 //     AA = 0,
 // }
+impl ValueWrite for String {
+    fn write(&self, _endian: &Endian) -> io::Result<Vec<u8>> {
+        Ok(self.as_bytes().to_vec())
+    }
+}
+impl ValueWrite for Vec<u8> {
+    fn write(&self, _endian: &Endian) -> io::Result<Vec<u8>> {
+        Ok(self.clone())
+    }
+}
 impl<T: Read + Write + Seek> ValueRead<T> for [u8; 4] {
     fn read(stream: &mut Stream<T>) -> io::Result<Self> {
         let mut value = [0u8; 4];
