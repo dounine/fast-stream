@@ -15,6 +15,12 @@ impl<T> Stream<T> {
         self
     }
 }
+impl Stream<Cursor<Vec<u8>>> {
+    pub fn take_data(&mut self) -> Vec<u8> {
+        let data = &mut self.inner;
+        std::mem::take(data.get_mut())
+    }
+}
 impl<T: Default> Stream<T> {
     pub fn empty() -> Stream<T> {
         Self {
