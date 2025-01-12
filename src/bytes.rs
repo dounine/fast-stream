@@ -97,6 +97,12 @@ macro_rules! enum_to_bytes {
                 value.write(endian)
             }
         }
+        impl<T: std::io::Read + std::io::Write + std::io::Seek> fast_stream::bytes::ValueRead<T> for $typ {
+            fn read(stream: &mut Stream<T>) -> std::io::Result<Self> {
+                let value: $btyp = stream.read_value()?;
+                Ok(value.into())
+            }
+        }
     };
 }
 // enum_to_bytes!(A,u32);
