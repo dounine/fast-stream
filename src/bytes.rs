@@ -1,7 +1,9 @@
 use crate::endian::Endian;
+use crate::len::Len;
+use crate::pin::Pin;
 use crate::stream::Stream;
 use std::io;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 
 #[allow(dead_code)]
 pub trait ValueRead<T: Read + Write + Seek>: Sized {
@@ -21,13 +23,49 @@ impl<T: Read + Write + Seek> Stream<T> {
         self.inner.read_exact(&mut buf)?;
         Ok(buf)
     }
+    pub fn fill_size(&mut self, size: u64) -> io::Result<&mut Self> {
+        let data_len = self.len()?;
+        if data_len < size {
+            let diff = size - data_len;
+            self.inner.write(&vec![0u8; diff as usize])?;
+        }
+        Ok(self)
+    }
+    pub fn extend_from_slice(&mut self, data: &[u8]) -> io::Result<&mut Self> {
+        self.pin()?;
+        self.seek(SeekFrom::End(0))?;
+        self.inner.write_all(data)?;
+        self.un_pin()?;
+        Ok(self)
+    }
+    pub fn splice(&mut self, offset: u64, data: &[u8]) -> io::Result<&mut Self> {
+        self.pin()?;
+        self.seek(SeekFrom::Start(offset))?;
+        let mut remaing_data = vec![];
+        self.read_to_end(&mut remaing_data)?;
+        self.seek(SeekFrom::Start(offset))?;
+        self.write_all(data)?;
+        self.write_all(&remaing_data)?;
+        self.un_pin()?;
+        Ok(self)
+    }
+    pub fn insert_data(&mut self, data: &[u8]) -> io::Result<&mut Self> {
+        self.pin()?;
+        self.seek(SeekFrom::Start(0))?;
+        let mut remaing_data = vec![];
+        self.read_to_end(&mut remaing_data)?;
+        self.write_all(data)?;
+        self.write_all(&remaing_data)?;
+        self.un_pin()?;
+        Ok(self)
+    }
 }
 impl<T: Read + Write + Seek> Stream<T> {
-    pub fn write_value<Value: ValueWrite>(&mut self, value: &Value) -> io::Result<usize> {
+    pub fn write_value<Value: ValueWrite>(&mut self, value: &Value) -> io::Result<&mut Self> {
         let data = value.write(&self.endian)?;
-        let len = data.len();
+        // let len = data.len();
         self.inner.write(&data)?;
-        Ok(len)
+        Ok(self)
     }
 }
 #[macro_export]
@@ -56,7 +94,7 @@ macro_rules! value_write {
     ($($typ:ty),*) => {
         $(
             impl ValueWrite for $typ {
-                fn write(&self, endian: &Endian) -> std::io::Result<Vec<u8>> {
+                fn write(&self, endian: &crate::endian::Endian) -> std::io::Result<Vec<u8>> {
                     use crate::endian::Endian;
                     let value = match endian {
                         Endian::Big => self.to_be_bytes().to_vec(),
@@ -92,13 +130,15 @@ pub trait FromBytes<const N: usize> {
 macro_rules! enum_to_bytes {
     ($typ:ty,$btyp:ty) => {
         impl fast_stream::bytes::ValueWrite for $typ {
-            fn write(&self, endian: &Endian) -> std::io::Result<Vec<u8>> {
+            fn write(&self, endian: &fast_stream::endian::Endian) -> std::io::Result<Vec<u8>> {
                 let value: $btyp = self.clone() as $btyp;
                 value.write(endian)
             }
         }
-        impl<T: std::io::Read + std::io::Write + std::io::Seek> fast_stream::bytes::ValueRead<T> for $typ {
-            fn read(stream: &mut Stream<T>) -> std::io::Result<Self> {
+        impl<T: std::io::Read + std::io::Write + std::io::Seek> fast_stream::bytes::ValueRead<T>
+            for $typ
+        {
+            fn read(stream: &mut fast_stream::stream::Stream<T>) -> std::io::Result<Self> {
                 let value: $btyp = stream.read_value()?;
                 Ok(value.into())
             }
