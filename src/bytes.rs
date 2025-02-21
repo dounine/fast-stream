@@ -13,17 +13,25 @@ pub trait ValueRead<T: Read + Write + Seek>: Sized {
 pub trait ValueWrite: Sized {
     fn write(&self, endian: &Endian) -> io::Result<Vec<u8>>;
 }
+pub trait Bytes<T: Read + Write + Seek> {
+    fn read_value<Value: ValueRead<T>>(&mut self) -> io::Result<Value>;
+    fn read_size(&mut self, size: u64) -> io::Result<Vec<u8>>;
+    fn fill_size(&mut self, size: u64) -> io::Result<&mut Self>;
+    fn extend_from_slice(&mut self, data: &[u8]) -> io::Result<&mut Self>;
+    fn splice(&mut self, offset: u64, data: &[u8]) -> io::Result<&mut Self>;
+    fn insert_data(&mut self, data: &[u8]) -> io::Result<&mut Self>;
+}
 #[allow(dead_code)]
-impl<T: Read + Write + Seek> Stream<T> {
-    pub fn read_value<Value: ValueRead<T>>(&mut self) -> io::Result<Value> {
+impl<T: Read + Write + Seek> Bytes<T> for Stream<T> {
+    fn read_value<Value: ValueRead<T>>(&mut self) -> io::Result<Value> {
         Value::read(self)
     }
-    pub fn read_size(&mut self, size: u64) -> io::Result<Vec<u8>> {
+    fn read_size(&mut self, size: u64) -> io::Result<Vec<u8>> {
         let mut buf = vec![0u8; size as usize];
         self.inner.read_exact(&mut buf)?;
         Ok(buf)
     }
-    pub fn fill_size(&mut self, size: u64) -> io::Result<&mut Self> {
+    fn fill_size(&mut self, size: u64) -> io::Result<&mut Self> {
         let data_len = self.len()?;
         if data_len < size {
             let diff = size - data_len;
@@ -31,31 +39,31 @@ impl<T: Read + Write + Seek> Stream<T> {
         }
         Ok(self)
     }
-    pub fn extend_from_slice(&mut self, data: &[u8]) -> io::Result<&mut Self> {
+    fn extend_from_slice(&mut self, data: &[u8]) -> io::Result<&mut Self> {
         self.pin()?;
         self.seek(SeekFrom::End(0))?;
         self.inner.write_all(data)?;
         self.un_pin()?;
         Ok(self)
     }
-    pub fn splice(&mut self, offset: u64, data: &[u8]) -> io::Result<&mut Self> {
+    fn splice(&mut self, offset: u64, data: &[u8]) -> io::Result<&mut Self> {
         self.pin()?;
         self.seek(SeekFrom::Start(offset))?;
-        let mut remaing_data = vec![];
-        self.read_to_end(&mut remaing_data)?;
+        let mut remain_data = vec![];
+        self.read_to_end(&mut remain_data)?;
         self.seek(SeekFrom::Start(offset))?;
         self.write_all(data)?;
-        self.write_all(&remaing_data)?;
+        self.write_all(&remain_data)?;
         self.un_pin()?;
         Ok(self)
     }
-    pub fn insert_data(&mut self, data: &[u8]) -> io::Result<&mut Self> {
+    fn insert_data(&mut self, data: &[u8]) -> io::Result<&mut Self> {
         self.pin()?;
         self.seek(SeekFrom::Start(0))?;
-        let mut remaing_data = vec![];
-        self.read_to_end(&mut remaing_data)?;
+        let mut remain_data = vec![];
+        self.read_to_end(&mut remain_data)?;
         self.write_all(data)?;
-        self.write_all(&remaing_data)?;
+        self.write_all(&remain_data)?;
         self.un_pin()?;
         Ok(self)
     }
@@ -139,6 +147,7 @@ macro_rules! enum_to_bytes {
             for $typ
         {
             fn read(stream: &mut fast_stream::stream::Stream<T>) -> std::io::Result<Self> {
+                use fast_stream::bytes::Bytes;
                 let value: $btyp = stream.read_value()?;
                 Ok(value.into())
             }
