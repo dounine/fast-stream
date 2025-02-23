@@ -2,5 +2,10 @@
 name = "fast_stream"
 version = "0.1.0"
 edition = "2021"
+authors = ["lake"]
+description = "stream"
+repository = "https://github.com/dounine/fast-stream"
+license = "MIT"
+keywords = ["stream"]
 
 [dependencies]
