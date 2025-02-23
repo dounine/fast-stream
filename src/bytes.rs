@@ -1,5 +1,5 @@
 use crate::endian::Endian;
-use crate::len::Len;
+use crate::length::Len;
 use crate::pin::Pin;
 use crate::stream::Stream;
 use std::io;
@@ -32,7 +32,7 @@ impl<T: Read + Write + Seek> Bytes<T> for Stream<T> {
         Ok(buf)
     }
     fn fill_size(&mut self, size: u64) -> io::Result<&mut Self> {
-        let data_len = self.len()?;
+        let data_len = self.length()?;
         if data_len < size {
             let diff = size - data_len;
             self.inner.write(&vec![0u8; diff as usize])?;
