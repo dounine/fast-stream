@@ -12,9 +12,9 @@ pub trait Pin {
     fn set_position(&mut self, position: u64) -> io::Result<&mut Self>;
     fn position(&mut self) -> io::Result<u64>;
 }
-impl<T: Seek> Pin for Stream<T> {
+impl Pin for Stream {
     fn restore(&mut self) -> io::Result<&mut Self> {
-        self.inner.seek(SeekFrom::Start(0))?;
+        self.data.seek(SeekFrom::Start(0))?;
         Ok(self)
     }
     fn pin(&mut self) -> io::Result<u64> {
@@ -34,10 +34,10 @@ impl<T: Seek> Pin for Stream<T> {
     恢复到pin+size位置
      */
     fn un_pin_size(&mut self, size: u64) -> io::Result<&mut Self> {
-        let current_position = self.inner.stream_position()?;
+        let current_position = self.data.stream_position()?;
         if let Some(position) = self.pins.pop() {
             if current_position - position != size {
-                self.inner.seek(SeekFrom::Start(position + size))?;
+                self.data.seek(SeekFrom::Start(position + size))?;
             }
         }
         Ok(self)

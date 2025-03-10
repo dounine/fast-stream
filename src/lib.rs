@@ -1,7 +1,9 @@
+pub mod align;
 pub mod bytes;
 pub mod endian;
-pub mod length;
 pub mod pin;
 pub mod stream;
-mod align;
-mod vec;
+pub mod vec;
+
+#[cfg(feature = "enum")]
+pub use derive;
