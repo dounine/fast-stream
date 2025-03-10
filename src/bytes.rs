@@ -15,7 +15,6 @@ pub trait ValueWrite: Sized {
 }
 pub trait Bytes {
     fn merge(&mut self, dest: Stream) -> io::Result<u64>;
-    fn merge_with_pos(&mut self, dest: Stream, pos: u64) -> io::Result<u64>;
     fn read_value<Value: ValueRead>(&mut self) -> io::Result<Value>;
     fn read_exact_size(&mut self, size: u64) -> io::Result<Vec<u8>>;
     fn fill_size(&mut self, size: u64) -> io::Result<&mut Self>;
@@ -66,15 +65,16 @@ impl Bytes for Stream {
     fn merge(&mut self, dest: Stream) -> io::Result<u64> {
         let mut data = dest.data;
         data.seek(SeekFrom::Start(0))?;
+        let position = self.stream_position()?;
         let bytes = self.data.merge(&mut data)?;
-        self.length += bytes;
-        Ok(bytes)
-    }
-    fn merge_with_pos(&mut self, dest: Stream, pos: u64) -> io::Result<u64> {
-        let mut data = dest.data;
-        data.seek(SeekFrom::Start(pos))?;
-        let bytes = self.data.merge(&mut data)?;
-        self.length += bytes;
+        if self.length == position {
+            self.length += bytes;
+        } else {
+            if position + bytes > self.length {
+                // 如果写入的数据超出了当前流的长度，更新流的长度
+                self.length = position + bytes;
+            }
+        }
         Ok(bytes)
     }
     fn read_value<Value: ValueRead>(&mut self) -> io::Result<Value> {
@@ -172,16 +172,7 @@ impl Bytes for Stream {
 impl Stream {
     pub fn write_value<Value: ValueWrite>(&mut self, value: &Value) -> io::Result<&mut Self> {
         let data = value.write(&self.endian)?;
-        let position = self.stream_position()?;
-        let length = self.merge(data)?;
-        if self.length == position {
-            self.length += length;
-        } else {
-            if position + length > self.length {
-                // 如果写入的数据超出了当前流的长度，更新流的长度
-                self.length = position + length;
-            }
-        }
+        self.merge(data)?;
         Ok(self)
     }
 }
