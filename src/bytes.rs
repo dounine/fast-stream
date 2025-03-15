@@ -115,6 +115,7 @@ impl Bytes for Stream {
         let new_len = len - drain_len;
 
         match &mut self.data {
+            #[cfg(feature = "file")]
             Data::File(f) => {
                 f.set_len(new_len as u64)?;
             }
@@ -139,6 +140,7 @@ impl Bytes for Stream {
     fn splice(&mut self, pos: u64, replace_with: Vec<u8>) -> io::Result<&mut Self> {
         self.pin()?;
         match &mut self.data {
+            #[cfg(feature = "file")]
             Data::File(f) => {
                 f.seek(SeekFrom::Start(pos))?;
                 // 读取插入点之后的数据

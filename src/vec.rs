@@ -1,12 +1,14 @@
 use crate::pin::Pin;
 use crate::stream::{Data, Stream};
 use std::io;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Seek, SeekFrom};
 
 impl Stream {
     pub fn take_data(&mut self) -> io::Result<Vec<u8>> {
         Ok(match &mut self.data {
+            #[cfg(feature = "file")]
             Data::File(f) => {
+                use std::io::{Read};
                 self.length = 0;
                 let mut data = Vec::new();
                 f.read_to_end(&mut data)?;
@@ -26,7 +28,9 @@ impl Stream {
             self.pin()?;
             self.seek(SeekFrom::End(0))?;
             match &mut self.data {
+                #[cfg(feature = "file")]
                 Data::File(f) => {
+                    use std::io::{Write};
                     f.write_all(&vec![0_u8; padding as usize])?;
                 }
                 Data::Mem(m) => {

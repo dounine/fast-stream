@@ -1,25 +1,29 @@
 use crate::endian::Endian;
-use std::fs::File;
 use std::io;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
 #[derive(Debug)]
 pub enum Data {
-    File(File),
+    #[cfg(feature = "file")]
+    File(std::fs::File),
     Mem(Cursor<Vec<u8>>),
 }
 impl Data {
     pub(crate) fn merge(&mut self, other: &mut Data) -> io::Result<u64> {
         Ok(match (self, other) {
+            #[cfg(feature = "file")]
             (Data::File(writer), Data::File(reader)) => std::io::copy(reader, writer)?,
+            #[cfg(feature = "file")]
             (Data::File(writer), Data::Mem(reader)) => std::io::copy(reader, writer)?,
+            #[cfg(feature = "file")]
             (Data::Mem(writer), Data::File(reader)) => std::io::copy(reader, writer)?,
             (Data::Mem(writer), Data::Mem(reader)) => std::io::copy(reader, writer)?,
         })
     }
 }
-impl From<File> for Data {
-    fn from(value: File) -> Self {
+#[cfg(feature = "file")]
+impl From<std::fs::File> for Data {
+    fn from(value: std::fs::File) -> Self {
         Data::File(value)
     }
 }
@@ -31,6 +35,7 @@ impl From<Vec<u8>> for Data {
 impl Seek for Data {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         match self {
+            #[cfg(feature = "file")]
             Data::File(f) => f.seek(pos),
             Data::Mem(m) => m.seek(pos),
         }
@@ -39,6 +44,7 @@ impl Seek for Data {
 impl Read for Data {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
+            #[cfg(feature = "file")]
             Data::File(f) => f.read(buf),
             Data::Mem(m) => m.read(buf),
         }
@@ -47,6 +53,7 @@ impl Read for Data {
 impl Write for Data {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
+            #[cfg(feature = "file")]
             Data::File(f) => f.write(buf),
             Data::Mem(m) => m.write(buf),
         }
@@ -54,6 +61,7 @@ impl Write for Data {
 
     fn flush(&mut self) -> io::Result<()> {
         match self {
+            #[cfg(feature = "file")]
             Data::File(f) => f.flush(),
             Data::Mem(m) => m.flush(),
         }
@@ -101,6 +109,7 @@ impl Stream {
 impl Stream {
     pub fn new(data: Data) -> Stream {
         let length = match &data {
+            #[cfg(feature = "file")]
             Data::File(f) => f.metadata().unwrap().len(),
             Data::Mem(m) => m.get_ref().len() as u64,
         };
