@@ -1,5 +1,5 @@
 [package]
-name = "fast_stream"
+name = "fast-stream"
 version = "0.0.2"
 edition = "2021"
 authors = ["lake"]
