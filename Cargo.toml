@@ -18,9 +18,18 @@ members = [".", "example", "derive"]
 [dependencies.derive]
 path = "derive"
 optional = true
+[dependencies.crc32fast]
+version = "1.4.2"
+optional = true
+[dependencies.miniz_oxide]
+version = "0.8.5"
+optional = true
 
 [features]
 default = []
-all = ["enum", "file"]
+all = ["enum", "file", "crc32", "deflate"]
 file = []
 enum = ["derive"]
+crc32 = ["crc32fast"]
+deflate = ["miniz_oxide"]
+
