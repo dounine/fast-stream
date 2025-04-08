@@ -8,12 +8,12 @@ pub trait Align {
 }
 impl Align for Stream {
     fn align(&mut self, align: u64) -> io::Result<()> {
-        let len = self.length;
+        let len = *self.length.borrow();
         let remainder = len % align;
         if remainder != 0 {
             let padding = align - remainder;
             let padding_bytes = vec![0_u8; padding as usize];
-            self.data.write_all(&padding_bytes)?;
+            self.data.borrow_mut().write_all(&padding_bytes)?;
         }
         Ok(())
     }

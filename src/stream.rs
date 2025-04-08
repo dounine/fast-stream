@@ -1,4 +1,5 @@
 use crate::endian::Endian;
+use std::cell::RefCell;
 use std::io;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
@@ -9,6 +10,23 @@ pub enum Data {
     Mem(Cursor<Vec<u8>>),
 }
 impl Data {
+    pub fn copy_data(&mut self) -> io::Result<Vec<u8>> {
+        let data = match self {
+            #[cfg(feature = "file")]
+            Data::File(f) => {
+                use std::io::Read;
+                let mut data = vec![];
+                f.read_to_end(&mut data)?;
+                data
+            }
+            Data::Mem(m) => {
+                let mut data = vec![];
+                m.read_to_end(&mut data)?;
+                data
+            }
+        };
+        Ok(data)
+    }
     pub(crate) fn merge(&mut self, other: &mut Data) -> io::Result<u64> {
         Ok(match (self, other) {
             #[cfg(feature = "file")]
@@ -71,33 +89,36 @@ impl Write for Data {
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Stream {
-    pub data: Data,
+    pub data: RefCell<Data>,
     pub endian: Endian,
-    pub length: u64,
-    pub pins: Vec<u64>,
+    pub length: RefCell<u64>,
+    pub pins: RefCell<Vec<u64>>,
 }
 impl From<Vec<u8>> for Stream {
     fn from(value: Vec<u8>) -> Self {
         let length = value.len() as u64;
         Stream {
-            data: value.into(),
+            data: RefCell::new(value.into()),
             endian: Endian::Little,
-            length,
-            pins: vec![],
+            length: RefCell::new(length),
+            pins: RefCell::new(vec![]),
         }
     }
 }
 impl Stream {
+    pub fn length(&self) -> u64 {
+        *self.length.borrow()
+    }
     pub fn with_endian(&mut self, endian: Endian) -> &mut Self {
         self.endian = endian;
         self
     }
     pub fn empty() -> Stream {
         Self {
-            data: vec![].into(),
+            data: RefCell::new(vec![].into()),
             endian: Endian::Little,
-            pins: vec![],
-            length: 0,
+            pins: RefCell::new(vec![]),
+            length: RefCell::new(0),
         }
     }
     pub fn seek_start(&mut self) -> io::Result<()> {
@@ -114,30 +135,30 @@ impl Stream {
             Data::Mem(m) => m.get_ref().len() as u64,
         };
         Self {
-            data,
+            data: RefCell::new(data),
             endian: Endian::Little,
-            pins: vec![],
-            length,
+            pins: RefCell::new(vec![]),
+            length: RefCell::new(length),
         }
     }
 }
 impl Seek for Stream {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        self.data.seek(pos)
+        self.data.borrow_mut().seek(pos)
     }
 }
 impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.data.read(buf)
+        self.data.borrow_mut().read(buf)
     }
 }
 impl Write for Stream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.data.write(buf)
+        self.data.borrow_mut().write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.data.flush()
+        self.data.borrow_mut().flush()
     }
 }
 #[cfg(test)]

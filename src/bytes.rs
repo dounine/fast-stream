@@ -28,7 +28,7 @@ impl Stream {
         &mut self,
         range: R,
     ) -> io::Result<(usize, usize)> {
-        let len = self.length as usize;
+        let len = *self.length.borrow() as usize;
 
         let start = match range.start_bound() {
             ops::Bound::Included(&start) => start,
@@ -63,16 +63,16 @@ impl Stream {
 #[allow(dead_code)]
 impl Bytes for Stream {
     fn merge(&mut self, dest: Stream) -> io::Result<u64> {
-        let mut data = dest.data;
-        data.seek(SeekFrom::Start(0))?;
+        let data = dest.data;
+        data.borrow_mut().seek(SeekFrom::Start(0))?;
         let position = self.stream_position()?;
-        let bytes = self.data.merge(&mut data)?;
-        if self.length == position {
-            self.length += bytes;
+        let bytes = self.data.borrow_mut().merge(&mut data.borrow_mut())?;
+        if *self.length.borrow() == position {
+            *self.length.borrow_mut() += bytes;
         } else {
-            if position + bytes > self.length {
+            if position + bytes > *self.length.borrow() {
                 // 如果写入的数据超出了当前流的长度，更新流的长度
-                self.length = position + bytes;
+                *self.length.borrow_mut() = position + bytes;
             }
         }
         Ok(bytes)
@@ -82,21 +82,21 @@ impl Bytes for Stream {
     }
     fn read_exact_size(&mut self, size: u64) -> io::Result<Vec<u8>> {
         let mut buf = vec![0_u8; size as usize];
-        self.data.read_exact(&mut buf)?;
+        self.data.borrow_mut().read_exact(&mut buf)?;
         Ok(buf)
     }
     fn fill_size(&mut self, size: u64) -> io::Result<&mut Self> {
-        let data_len = self.length;
+        let data_len = *self.length.borrow();
         if data_len < size {
             let diff = size - data_len;
-            self.data.write_all(&vec![0_u8; diff as usize])?;
-            self.length += diff;
+            self.data.borrow_mut().write_all(&vec![0_u8; diff as usize])?;
+            *self.length.borrow_mut() += diff;
         }
         Ok(self)
     }
 
     fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> io::Result<Vec<u8>> {
-        let len = self.length as usize;
+        let len = *self.length.borrow() as usize;
         let (start, end) = self.range_bounds(range)?;
         let drain_len = end - start;
         self.pin()?;
@@ -114,7 +114,7 @@ impl Bytes for Stream {
 
         let new_len = len - drain_len;
 
-        match &mut self.data {
+        match &mut self.data.get_mut() {
             #[cfg(feature = "file")]
             Data::File(f) => {
                 f.set_len(new_len as u64)?;
@@ -124,7 +124,7 @@ impl Bytes for Stream {
             }
         }
         self.un_pin()?;
-        self.length = new_len as u64;
+        *self.length.borrow_mut() = new_len as u64;
         Ok(drained_data)
     }
 
@@ -132,14 +132,14 @@ impl Bytes for Stream {
         // self.pin()?;
         let len = data.len();
         self.seek(SeekFrom::End(0))?;
-        self.data.write_all(data)?;
+        self.data.borrow_mut().write_all(data)?;
         // self.un_pin()?;
-        self.length += len as u64;
+        *self.length.borrow_mut() += len as u64;
         Ok(self)
     }
     fn splice(&mut self, pos: u64, replace_with: Vec<u8>) -> io::Result<&mut Self> {
         self.pin()?;
-        match &mut self.data {
+        match &mut self.data.get_mut() {
             #[cfg(feature = "file")]
             Data::File(f) => {
                 f.seek(SeekFrom::Start(pos))?;
@@ -149,10 +149,10 @@ impl Bytes for Stream {
                 f.seek(SeekFrom::Start(pos))?;
                 f.write_all(&replace_with)?;
                 f.write_all(&remaining_data)?;
-                self.length += replace_with.len() as u64;
+                *self.length.borrow_mut() += replace_with.len() as u64;
             }
             Data::Mem(m) => {
-                self.length += replace_with.len() as u64;
+                *self.length.borrow_mut() += replace_with.len() as u64;
                 m.get_mut().splice(pos as usize..pos as usize, replace_with);
             }
         }
@@ -167,7 +167,7 @@ impl Bytes for Stream {
         self.seek(SeekFrom::Start(0))?;
         self.write_all(data)?;
         self.write_all(&remain_data)?;
-        self.length += len as u64;
+        *self.length.borrow_mut() += len as u64;
         Ok(self)
     }
 }
