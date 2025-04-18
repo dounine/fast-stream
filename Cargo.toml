@@ -24,11 +24,14 @@ optional = true
 [dependencies.miniz_oxide]
 version = "0.8.5"
 optional = true
+[dependencies.tempfile]
+version = "3.19.1"
+optional = true
 
 [features]
 default = []
 all = ["enum", "file", "crc32", "deflate"]
-file = []
+file = ["tempfile"]
 enum = ["derive"]
 crc32 = ["crc32fast"]
 deflate = ["miniz_oxide"]

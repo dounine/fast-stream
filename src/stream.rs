@@ -10,6 +10,25 @@ pub enum Data {
     Mem(Cursor<Vec<u8>>),
 }
 impl Data {
+    pub fn copy(&mut self) -> io::Result<Self> {
+        Ok(match self {
+            #[cfg(feature = "file")]
+            Data::File(f) => {
+                let position = f.stream_position()?;
+                let mut tmp_file = tempfile::tempfile()?;
+                std::io::copy(f, &mut tmp_file)?;
+                tmp_file.seek(SeekFrom::Start(0))?;
+                f.seek(SeekFrom::Start(position))?;
+                tmp_file.into()
+            }
+            Data::Mem(f) => {
+                let mut data = Cursor::new(vec![]);
+                std::io::copy(f, &mut data)?;
+                data.set_position(0);
+                Data::Mem(data)
+            }
+        })
+    }
     pub fn copy_data(&mut self) -> io::Result<Vec<u8>> {
         let data = match self {
             #[cfg(feature = "file")]
@@ -106,6 +125,9 @@ impl From<Vec<u8>> for Stream {
     }
 }
 impl Stream {
+    pub fn copy(&mut self) -> io::Result<Self> {
+        Ok(Self::new(self.data.get_mut().copy()?))
+    }
     pub fn length(&self) -> u64 {
         *self.length.borrow()
     }
