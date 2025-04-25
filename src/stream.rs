@@ -10,6 +10,20 @@ pub enum Data {
     Mem(Cursor<Vec<u8>>),
 }
 impl Data {
+    pub fn clear(&mut self) -> io::Result<()> {
+        Ok(match self {
+            #[cfg(feature = "file")]
+            Data::File(f) => {
+                f.set_len(0)?;
+                ()
+            }
+            Data::Mem(f) => {
+                f.set_position(0);
+                f.get_mut().clear();
+                ()
+            }
+        })
+    }
     pub fn copy(&mut self) -> io::Result<Self> {
         Ok(match self {
             #[cfg(feature = "file")]
@@ -110,7 +124,7 @@ impl Write for Data {
 pub struct Stream {
     pub data: RefCell<Data>,
     pub endian: Endian,
-    pub length: RefCell<u64>,
+    pub(crate) length: RefCell<u64>,
     pub pins: RefCell<Vec<u64>>,
 }
 impl From<Vec<u8>> for Stream {
@@ -125,6 +139,9 @@ impl From<Vec<u8>> for Stream {
     }
 }
 impl Stream {
+    pub fn is_empty(&self) -> bool {
+        *self.length.borrow() == 0
+    }
     pub fn copy(&mut self) -> io::Result<Self> {
         Ok(Self::new(self.data.get_mut().copy()?))
     }
@@ -133,6 +150,14 @@ impl Stream {
     }
     pub fn with_endian(&mut self, endian: Endian) -> &mut Self {
         self.endian = endian;
+        self
+    }
+    pub fn with_little_endian(&mut self) -> &mut Self {
+        self.endian = Endian::Little;
+        self
+    }
+    pub fn with_big_endian(&mut self) -> &mut Self {
+        self.endian = Endian::Big;
         self
     }
     pub fn empty() -> Stream {

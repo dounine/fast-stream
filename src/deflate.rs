@@ -25,7 +25,7 @@ impl Deflate for Stream {
         };
         let compress_data = compress_to_vec(&data, level);
         let length = compress_data.len() as u64;
-        self.data.borrow_mut().seek(SeekFrom::Start(0))?;
+        self.data.borrow_mut().clear()?;
         self.data.borrow_mut().write_all(&compress_data)?;
         *self.length.borrow_mut() = length;
         *self.pins.borrow_mut() = vec![];
@@ -45,7 +45,7 @@ impl Deflate for Stream {
         };
         let compress_data = compress_to_vec_zlib(&data, level);
         let length = compress_data.len() as u64;
-        self.data.borrow_mut().seek(SeekFrom::Start(0))?;
+        self.data.borrow_mut().clear()?;
         self.data.borrow_mut().write_all(&compress_data)?;
         *self.length.borrow_mut() = length;
         *self.pins.borrow_mut() = vec![];
@@ -57,7 +57,7 @@ impl Deflate for Stream {
         let length = data.len() as u64;
         let un_compress_data = decompress_to_vec(&data)
             .map_err(|_e| Error::new(ErrorKind::InvalidData, std::fmt::Error::default()))?;
-        self.data.borrow_mut().seek(SeekFrom::Start(0))?;
+        self.data.borrow_mut().clear()?;
         self.data.borrow_mut().write_all(&un_compress_data)?;
         *self.length.borrow_mut() = un_compress_data.len() as u64;
         *self.pins.borrow_mut() = vec![];
