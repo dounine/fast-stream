@@ -1,7 +1,7 @@
 use crate::endian::Endian;
 use std::cell::RefCell;
 use std::io;
-use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+use std::io::{Cursor, Error, ErrorKind, Read, Seek, SeekFrom, Write};
 
 #[derive(Debug)]
 pub enum Data {
@@ -142,8 +142,122 @@ impl Stream {
     pub fn is_empty(&self) -> bool {
         *self.length.borrow() == 0
     }
-    pub fn copy(&mut self) -> io::Result<Self> {
-        Ok(Self::new(self.data.get_mut().copy()?))
+    pub fn clone(&mut self) -> io::Result<Self> {
+        self.seek_start()?;
+        let mut s = Self::new(self.data.get_mut().copy()?);
+        s.with_endian(self.endian.clone());
+        self.seek_start()?;
+        Ok(s)
+    }
+    pub fn copy_size_from(&mut self,stream:&mut Stream, size: usize) -> io::Result<()> {
+        Ok(match stream.data.get_mut() {
+            #[cfg(feature = "file")]
+            Data::File(f) => {
+                // let mut tmp_file = tempfile::tempfile()?;
+                let chunk_size = 4096;
+                let mut buffer = vec![0u8; chunk_size]; // 4KB 缓冲区
+                let mut copied = 0;
+
+                while copied < size {
+                    let read_size = (size - copied).min(chunk_size);
+                    let n = f.read(&mut buffer[..read_size])?;
+                    if n == 0 {
+                        break;
+                    } // 数据源提前耗尽
+                    self.write_value(buffer[..n].to_vec())?;
+                    copied += n;
+                }
+                if copied < size {
+                    return Err(Error::new(
+                        ErrorKind::InvalidData,
+                        "source stream not enought data",
+                    ));
+                }
+                // tmp_file.seek(SeekFrom::Start(0))?;
+                // let mut s = Self::new(tmp_file.into());
+                // s.with_endian(self.endian.clone());
+                // s
+            }
+            Data::Mem(m) => {
+                let chunk_size = 4096;
+                let mut buffer = vec![0u8; chunk_size]; // 4KB 缓冲区
+                let mut copied = 0;
+
+                while copied < size {
+                    let read_size = (size - copied).min(chunk_size);
+                    let n = m.read(&mut buffer[..read_size])?;
+                    if n == 0 {
+                        break;
+                    } // 数据源提前耗尽
+                    self.write_value(buffer[..n].to_vec())?;
+                    copied += n;
+                }
+                if copied < size {
+                    return Err(Error::new(
+                        ErrorKind::InvalidData,
+                        "source stream not enought data",
+                    ));
+                }
+                // let position = m.position() as usize;
+                // let mut s = Self::new(m.get_ref()[position..position + size].to_vec().into());
+                // s.with_endian(self.endian.clone());
+                // s
+            }
+        })
+    }
+    pub fn copy_size(&mut self, size: usize) -> io::Result<Self> {
+        Ok(match self.data.get_mut() {
+            #[cfg(feature = "file")]
+            Data::File(f) => {
+                let mut tmp_file = tempfile::tempfile()?;
+                let chunk_size = 4096;
+                let mut buffer = vec![0u8; chunk_size]; // 4KB 缓冲区
+                let mut copied = 0;
+
+                while copied < size {
+                    let read_size = (size - copied).min(chunk_size);
+                    let n = f.read(&mut buffer[..read_size])?;
+                    if n == 0 {
+                        break;
+                    } // 数据源提前耗尽
+                    tmp_file.write_all(&buffer[..n])?;
+                    copied += n;
+                }
+                if copied < size {
+                    return Err(Error::new(
+                        ErrorKind::InvalidData,
+                        "source stream not enought data",
+                    ));
+                }
+                tmp_file.seek(SeekFrom::Start(0))?;
+                let mut s = Self::new(tmp_file.into());
+                s.with_endian(self.endian.clone());
+                s
+            }
+            Data::Mem(m) => {
+                let position = m.position() as usize;
+                let mut s = Self::new(m.get_ref()[position..position + size].to_vec().into());
+                s.with_endian(self.endian.clone());
+                s
+            }
+        })
+    }
+    pub fn copy_empty(&self) -> io::Result<Self> {
+        Ok(match &*self.data.borrow() {
+            #[cfg(feature = "file")]
+            Data::File(_) => {
+                let mut tmp_file = tempfile::tempfile()?;
+                tmp_file.seek(SeekFrom::Start(0))?;
+                let mut s = Self::new(tmp_file.into());
+                s.with_endian(self.endian.clone());
+                s
+            }
+            Data::Mem(_) => {
+                let mut s = Self::new(vec![].into());
+                s.with_endian(self.endian.clone());
+                s
+            }
+        })
     }
     pub fn length(&self) -> u64 {
         *self.length.borrow()
@@ -168,8 +282,8 @@ impl Stream {
             length: RefCell::new(0),
         }
     }
-    pub fn seek_start(&mut self) -> io::Result<()> {
-        self.seek(SeekFrom::Start(0))?;
+    pub fn seek_start(&self) -> io::Result<()> {
+        self.data.borrow_mut().seek(SeekFrom::Start(0))?;
         Ok(())
     }
 }

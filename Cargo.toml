@@ -29,8 +29,9 @@ version = "3.19.1"
 optional = true
 
 [features]
-default = []
-all = ["enum", "file", "crc32", "deflate"]
+default = ["mem"]
+all = ["file", "mem"]
+mem = ["crc32", "deflate", "enum"]
 file = ["tempfile"]
 enum = ["derive"]
 crc32 = ["crc32fast"]

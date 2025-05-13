@@ -20,6 +20,7 @@ pub trait ValueWrite: Sized {
     fn write_args<T: Sized>(self, endian: &Endian, args: &Option<T>) -> io::Result<Stream>;
 }
 pub trait Bytes {
+    fn append(&mut self, data: &mut Stream) -> io::Result<u64>;
     fn merge(&mut self, dest: Stream) -> io::Result<u64>;
     fn read_value<Value: ValueRead>(&mut self) -> io::Result<Value>;
     fn read_value_args<Value: ValueRead, T: Sized>(&mut self, args: &Option<T>)
@@ -70,6 +71,19 @@ impl Stream {
 }
 #[allow(dead_code)]
 impl Bytes for Stream {
+    fn append(&mut self, data: &mut Stream) -> io::Result<u64> {
+        let position = self.stream_position()?;
+        let bytes = self.data.borrow_mut().merge(data.data.get_mut())?;
+        if *self.length.borrow() == position {
+            *self.length.borrow_mut() += bytes;
+        } else {
+            if position + bytes > *self.length.borrow() {
+                // 如果写入的数据超出了当前流的长度，更新流的长度
+                *self.length.borrow_mut() = position + bytes;
+            }
+        }
+        Ok(bytes)
+    }
     fn merge(&mut self, dest: Stream) -> io::Result<u64> {
         let data = dest.data;
         data.borrow_mut().seek(SeekFrom::Start(0))?;
