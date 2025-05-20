@@ -22,7 +22,7 @@ optional = true
 version = "1.4.2"
 optional = true
 [dependencies.miniz_oxide]
-version = "0.8.5"
+path = "../miniz_oxide"
 optional = true
 [dependencies.tempfile]
 version = "3.19.1"

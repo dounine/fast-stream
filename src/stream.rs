@@ -30,14 +30,14 @@ impl Data {
             Data::File(f) => {
                 let position = f.stream_position()?;
                 let mut tmp_file = tempfile::tempfile()?;
+                // tmp_file.set_len(f.metadata()?.len())?;
                 std::io::copy(f, &mut tmp_file)?;
                 tmp_file.seek(SeekFrom::Start(0))?;
                 f.seek(SeekFrom::Start(position))?;
                 tmp_file.into()
             }
             Data::Mem(f) => {
-                let mut data = Cursor::new(vec![]);
-                std::io::copy(f, &mut data)?;
+                let mut data = f.clone();
                 data.set_position(0);
                 Data::Mem(data)
             }
@@ -53,9 +53,10 @@ impl Data {
                 data
             }
             Data::Mem(m) => {
-                let mut data = vec![];
-                m.read_to_end(&mut data)?;
-                data
+                // let mut data = vec![];
+                // m.read_to_end(&mut data)?;
+                // data
+                m.get_ref().to_vec()
             }
         };
         Ok(data)
@@ -149,7 +150,7 @@ impl Stream {
         self.seek_start()?;
         Ok(s)
     }
-    pub fn copy_size_from(&mut self,stream:&mut Stream, size: usize) -> io::Result<()> {
+    pub fn copy_size_from(&mut self, stream: &mut Stream, size: usize) -> io::Result<()> {
         Ok(match stream.data.get_mut() {
             #[cfg(feature = "file")]
             Data::File(f) => {
@@ -254,6 +255,40 @@ impl Stream {
             }
             Data::Mem(_) => {
                 let mut s = Self::new(vec![].into());
+                s.with_endian(self.endian.clone());
+                s
+            }
+        })
+    }
+    pub fn copy_empty_with_capacity(&self, capacity: usize) -> io::Result<Self> {
+        Ok(match &*self.data.borrow() {
+            #[cfg(feature = "file")]
+            Data::File(_) => {
+                let mut tmp_file = tempfile::tempfile()?;
+                tmp_file.seek(SeekFrom::Start(0))?;
+                let mut s = Self::new(tmp_file.into());
+                s.with_endian(self.endian.clone());
+                s
+            }
+            Data::Mem(_) => {
+                let mut s = Self::new(Vec::with_capacity(capacity).into());
+                s.with_endian(self.endian.clone());
+                s
+            }
+        })
+    }
+    pub fn copy_empty_same_capacity(&self) -> io::Result<Self> {
+        Ok(match &*self.data.borrow() {
+            #[cfg(feature = "file")]
+            Data::File(_) => {
+                let mut tmp_file = tempfile::tempfile()?;
+                tmp_file.seek(SeekFrom::Start(0))?;
+                let mut s = Self::new(tmp_file.into());
+                s.with_endian(self.endian.clone());
+                s
+            }
+            Data::Mem(f) => {
+                let mut s = Self::new(Vec::with_capacity(f.get_ref().len()).into());
                 s.with_endian(self.endian.clone());
                 s
             }

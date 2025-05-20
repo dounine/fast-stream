@@ -1,30 +1,49 @@
 use crate::endian::Endian;
 use crate::pin::Pin;
 use crate::stream::{Data, Stream};
+use std::any::Any;
 use std::io::{Error, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::RangeBounds;
 use std::{io, ops};
+
+pub trait StreamSized: Any + Sized {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+impl StreamSized for bool {}
+impl StreamSized for u8 {}
+impl StreamSized for u16 {}
+impl StreamSized for u32 {}
+impl StreamSized for u64 {}
+impl StreamSized for f32 {}
+impl StreamSized for f64 {}
+impl StreamSized for String {}
+impl StreamSized for usize {}
+impl StreamSized for isize {}
 
 #[allow(dead_code)]
 pub trait ValueRead: Sized {
     fn read(stream: &mut Stream) -> io::Result<Self> {
         Self::read_args::<bool>(stream, &None)
     }
-    fn read_args<T: Sized>(stream: &mut Stream, args: &Option<T>) -> io::Result<Self>;
+    fn read_args<T: StreamSized>(stream: &mut Stream, args: &Option<T>) -> io::Result<Self>;
 }
 #[allow(dead_code)]
 pub trait ValueWrite: Sized {
     fn write(self, endian: &Endian) -> io::Result<Stream> {
         self.write_args::<bool>(endian, &None)
     }
-    fn write_args<T: Sized>(self, endian: &Endian, args: &Option<T>) -> io::Result<Stream>;
+    fn write_args<T: StreamSized>(self, endian: &Endian, args: &Option<T>) -> io::Result<Stream>;
 }
 pub trait Bytes {
     fn append(&mut self, data: &mut Stream) -> io::Result<u64>;
     fn merge(&mut self, dest: Stream) -> io::Result<u64>;
     fn read_value<Value: ValueRead>(&mut self) -> io::Result<Value>;
-    fn read_value_args<Value: ValueRead, T: Sized>(&mut self, args: &Option<T>)
-        -> io::Result<Value>;
+    fn read_value_args<Value: ValueRead, T: StreamSized>(
+        &mut self,
+        args: &Option<T>,
+    ) -> io::Result<Value>;
     fn read_exact_size(&mut self, size: u64) -> io::Result<Vec<u8>>;
     fn fill_size(&mut self, size: u64) -> io::Result<&mut Self>;
     fn drain<R: RangeBounds<usize>>(&mut self, range: R) -> io::Result<Vec<u8>>;
@@ -102,7 +121,7 @@ impl Bytes for Stream {
     fn read_value<Value: ValueRead>(&mut self) -> io::Result<Value> {
         Value::read(self)
     }
-    fn read_value_args<Value: ValueRead, T: Sized>(
+    fn read_value_args<Value: ValueRead, T: StreamSized>(
         &mut self,
         args: &Option<T>,
     ) -> io::Result<Value> {
@@ -207,7 +226,7 @@ impl Stream {
         self.merge(data)?;
         Ok(self)
     }
-    pub fn write_value_args<Value: ValueWrite, T: Sized>(
+    pub fn write_value_args<Value: ValueWrite, T: StreamSized>(
         &mut self,
         value: Value,
         args: &Option<T>,
@@ -222,7 +241,7 @@ macro_rules! value_read {
     ($($typ:ty, $size:expr),*) => {
         $(
             impl ValueRead for $typ {
-                fn read_args<T:Sized>(stream: &mut Stream,_args:&Option<T>) -> std::io::Result<Self> {
+                fn read_args<T:StreamSized>(stream: &mut Stream,_args:&Option<T>) -> std::io::Result<Self> {
                     use crate::endian::Endian;
                     let mut buf = [0u8; $size];
                     stream.read_exact(&mut buf)?;
@@ -265,7 +284,7 @@ pub trait FromBytes<const N: usize> {
 macro_rules! enum_to_bytes {
     ($typ:ty,$btyp:ty) => {
         impl fast_stream::bytes::ValueWrite for $typ {
-            fn write_args<T: Sized>(
+            fn write_args<T: fast_stream::bytes::StreamSized>(
                 self,
                 endian: &fast_stream::endian::Endian,
                 args: &Option<T>,
@@ -275,7 +294,7 @@ macro_rules! enum_to_bytes {
             }
         }
         impl fast_stream::bytes::ValueRead for $typ {
-            fn read_args<T: Sized>(
+            fn read_args<T: fast_stream::bytes::StreamSized>(
                 stream: &mut fast_stream::stream::Stream,
                 args: &Option<T>,
             ) -> std::io::Result<Self> {
@@ -287,17 +306,17 @@ macro_rules! enum_to_bytes {
     };
 }
 impl ValueWrite for String {
-    fn write_args<T: Sized>(self, _endian: &Endian, _args: &Option<T>) -> io::Result<Stream> {
+    fn write_args<T: StreamSized>(self, _endian: &Endian, _args: &Option<T>) -> io::Result<Stream> {
         Ok(self.as_bytes().to_vec().into())
     }
 }
 impl ValueWrite for Vec<u8> {
-    fn write_args<T: Sized>(self, _endian: &Endian, _args: &Option<T>) -> io::Result<Stream> {
+    fn write_args<T: StreamSized>(self, _endian: &Endian, _args: &Option<T>) -> io::Result<Stream> {
         Ok(self.clone().into())
     }
 }
 impl ValueRead for [u8; 4] {
-    fn read_args<T: Sized>(stream: &mut Stream, _args: &Option<T>) -> io::Result<Self> {
+    fn read_args<T: StreamSized>(stream: &mut Stream, _args: &Option<T>) -> io::Result<Self> {
         let mut value = [0u8; 4];
         stream.read_exact(&mut value)?;
         Ok(value)

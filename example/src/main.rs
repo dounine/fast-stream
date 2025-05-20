@@ -12,13 +12,17 @@ pub enum Cpu {
 }
 fn main() {
     let mut data = Stream::empty();
-    data.set_position(3).unwrap();
     // let f = std::fs::File::open("").unwrap();
     // Stream::new(Data::File(f));
-    let mut dd = Stream::new(vec![3, 3, 3].into());
-    data.append(&mut dd).unwrap();
-    data.seek_start().unwrap();
-    println!("{:?}", data.copy_data().unwrap());
+    let mut stream = Stream::new(Vec::with_capacity(1024).into());
+    let length = stream.length();
+    println!("{}", length);
+    let data = stream.take_data().unwrap();
+    println!("data {:?}", data);
+    // let mut dd = Stream::new(vec![3, 3, 3].into());
+    // data.append(&mut dd).unwrap();
+    // data.seek_start().unwrap();
+    // println!("{:?}", data.copy_data().unwrap());
     // let v: u32 = Cpu::Arm.into();
     // let cpu: Cpu = 3.into();
     // let data = Cursor::new(vec![0_u8, 1_u8, 2_u8]);
