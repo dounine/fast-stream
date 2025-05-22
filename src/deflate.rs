@@ -54,10 +54,10 @@ impl Deflate for Stream {
         *self.length.borrow_mut() = 0;
         compress_stream_callback(&data, self, level, callback_fun)
             .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+        *self.length.borrow_mut() = self.data.borrow_mut().seek(SeekFrom::End(0))?;
         // let length = output.length();
         // self.data.borrow_mut().clear()?;
         // self.data.borrow_mut().write_all(&compress_data)?;
-        // *self.length.borrow_mut() = length;
         *self.pins.borrow_mut() = vec![];
         Ok(self.length())
     }
@@ -99,9 +99,11 @@ impl Deflate for Stream {
         *self.length.borrow_mut() = 0;
         decompress_stream_callback(&data, self, callback_fun)
             .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+        *self.length.borrow_mut() = self.data.borrow_mut().seek(SeekFrom::End(0))?;
         // self.data.borrow_mut().write_all(&un_compress_data)?;
         // let length = un_compress_data.len() as u64;
         // *self.length.borrow_mut() = length;
+        self.seek_start()?;
         *self.pins.borrow_mut() = vec![];
         Ok(self.length())
     }

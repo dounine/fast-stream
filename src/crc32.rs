@@ -13,7 +13,7 @@ impl CRC32 for Stream {
         let mut hasher = Hasher::new();
         self.data.borrow_mut().seek(SeekFrom::Start(0))?;
         loop {
-            let mut bytes = vec![0_u8; 1024];
+            let mut bytes = vec![0_u8; 1024 * 1024];
             let size = self.data.borrow_mut().read(&mut bytes)?;
             hasher.update(&bytes[..size]);
             if size == 0 {
