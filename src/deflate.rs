@@ -3,14 +3,14 @@ use crate::stream::Stream;
 use miniz_oxide::deflate::stream::compress_stream_callback;
 pub use miniz_oxide::deflate::CompressionLevel;
 use miniz_oxide::deflate::{compress_to_vec, compress_to_vec_zlib};
+use miniz_oxide::inflate::decompress_to_vec;
 use miniz_oxide::inflate::stream::decompress_stream_callback;
-use miniz_oxide::inflate::{decompress_to_vec};
 use std::io;
 use std::io::{Error, ErrorKind, Read, Seek, SeekFrom, Write};
 
 #[allow(dead_code)]
 pub trait Deflate {
-    fn compress(&self, level: &CompressionLevel) -> io::Result<u64>;
+    fn compress(&mut self, level: &CompressionLevel) -> io::Result<u64>;
     fn compress_callback(
         &mut self,
         level: &CompressionLevel,
@@ -22,9 +22,9 @@ pub trait Deflate {
     fn is_zip(&self) -> io::Result<bool>;
 }
 impl Deflate for Stream {
-    fn compress(&self, level: &CompressionLevel) -> io::Result<u64> {
+    fn compress(&mut self, level: &CompressionLevel) -> io::Result<u64> {
         self.data.borrow_mut().seek(SeekFrom::Start(0))?;
-        let data = self.copy_data()?;
+        let data = self.take_data()?;
         let level = match level {
             CompressionLevel::NoCompression => 0,
             CompressionLevel::BestSpeed => 1,
@@ -33,9 +33,12 @@ impl Deflate for Stream {
             CompressionLevel::DefaultLevel => 6,
             CompressionLevel::DefaultCompression => 0,
         };
-        let compress_data = compress_to_vec(&data, level);
+        let compress_data = if data.len() > 0 {
+            compress_to_vec(&data, level)
+        } else {
+            vec![]
+        };
         let length = compress_data.len() as u64;
-        self.data.borrow_mut().clear()?;
         self.data.borrow_mut().write_all(&compress_data)?;
         *self.length.borrow_mut() = length;
         *self.pins.borrow_mut() = vec![];
@@ -48,16 +51,14 @@ impl Deflate for Stream {
         callback_fun: &mut impl FnMut(usize),
     ) -> io::Result<u64> {
         self.data.borrow_mut().seek(SeekFrom::Start(0))?;
-        let data = self.copy_data()?;
-        // let mut output = self.copy_empty_same_capacity()?;
-        self.data.borrow_mut().clear()?;
+        let data = self.take_data()?;
         *self.length.borrow_mut() = 0;
-        compress_stream_callback(&data, self, level, callback_fun)
-            .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+        if data.len() > 0 {
+            compress_stream_callback(&data, self, level, callback_fun)
+                .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
+        }
         *self.length.borrow_mut() = self.data.borrow_mut().seek(SeekFrom::End(0))?;
-        // let length = output.length();
-        // self.data.borrow_mut().clear()?;
-        // self.data.borrow_mut().write_all(&compress_data)?;
+        self.data.borrow_mut().seek(SeekFrom::Start(0))?;
         *self.pins.borrow_mut() = vec![];
         Ok(self.length())
     }
@@ -73,7 +74,11 @@ impl Deflate for Stream {
             CompressionLevel::DefaultLevel => 6,
             CompressionLevel::DefaultCompression => 0,
         };
-        let compress_data = compress_to_vec_zlib(&data, level);
+        let compress_data = if data.len() > 0 {
+            compress_to_vec_zlib(&data, level)
+        } else {
+            vec![]
+        };
         let length = compress_data.len() as u64;
         self.data.borrow_mut().clear()?;
         self.data.borrow_mut().write_all(&compress_data)?;
@@ -94,15 +99,12 @@ impl Deflate for Stream {
         Ok(length)
     }
     fn decompress_callback(&mut self, callback_fun: &mut impl FnMut(usize)) -> io::Result<u64> {
-        let data = self.copy_data()?;
-        self.data.borrow_mut().clear()?;
+        let data = self.take_data()?;
         *self.length.borrow_mut() = 0;
         decompress_stream_callback(&data, self, callback_fun)
             .map_err(|e| Error::new(ErrorKind::InvalidData, e.to_string()))?;
         *self.length.borrow_mut() = self.data.borrow_mut().seek(SeekFrom::End(0))?;
-        // self.data.borrow_mut().write_all(&un_compress_data)?;
-        // let length = un_compress_data.len() as u64;
-        // *self.length.borrow_mut() = length;
+        self.data.borrow_mut().seek(SeekFrom::Start(0))?;
         self.seek_start()?;
         *self.pins.borrow_mut() = vec![];
         Ok(self.length())

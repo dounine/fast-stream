@@ -139,11 +139,32 @@ impl From<Vec<u8>> for Stream {
         }
     }
 }
+impl Clone for Stream {
+    fn clone(&self) -> Self {
+        let data = self.data.borrow_mut().copy().unwrap();
+        let mut stream = Stream::new(data);
+        stream.with_endian(self.endian.clone());
+        stream
+    }
+}
 impl Stream {
+    pub fn clear(&self) -> io::Result<()> {
+        self.data.borrow_mut().clear()?;
+        *self.length.borrow_mut() = 0;
+        self.pins.borrow_mut().clear();
+        Ok(())
+    }
     pub fn is_empty(&self) -> bool {
         *self.length.borrow() == 0
     }
     pub fn clone(&mut self) -> io::Result<Self> {
+        self.seek_start()?;
+        let mut s = Self::new(self.data.get_mut().copy()?);
+        s.with_endian(self.endian.clone());
+        self.seek_start()?;
+        Ok(s)
+    }
+    pub fn clone_stream(&mut self) -> io::Result<Self> {
         self.seek_start()?;
         let mut s = Self::new(self.data.get_mut().copy()?);
         s.with_endian(self.endian.clone());
@@ -308,6 +329,14 @@ impl Stream {
     pub fn with_big_endian(&mut self) -> &mut Self {
         self.endian = Endian::Big;
         self
+    }
+    pub fn capacity(value: usize) -> Stream {
+        Self {
+            data: RefCell::new(Vec::with_capacity(value).into()),
+            endian: Endian::Little,
+            pins: RefCell::new(vec![]),
+            length: RefCell::new(0),
+        }
     }
     pub fn empty() -> Stream {
         Self {
