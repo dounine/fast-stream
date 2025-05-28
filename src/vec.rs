@@ -1,10 +1,11 @@
 use crate::pin::Pin;
 use crate::stream::{Data, Stream};
 use std::io;
-use std::io::{Seek, SeekFrom};
+use std::io::{Seek, SeekFrom, Write};
 
 impl Stream {
     pub fn copy_data(&self) -> io::Result<Vec<u8>> {
+        self.data.borrow_mut().flush()?;
         self.pin()?;
         let data = self.data.borrow_mut().copy_data()?;
         self.un_pin()?;
@@ -13,7 +14,7 @@ impl Stream {
     pub fn take_data(&mut self) -> io::Result<Vec<u8>> {
         Ok(match &mut self.data.get_mut() {
             #[cfg(feature = "file")]
-            Data::File(f) => {
+            Data::File { data: f, .. } => {
                 use std::io::Read;
                 *self.length.borrow_mut() = 0;
                 let mut data = Vec::new();
@@ -21,9 +22,9 @@ impl Stream {
                 f.set_len(0)?;
                 data
             }
-            Data::Mem(m) => {
+            Data::Mem { data, .. } => {
                 *self.length.borrow_mut() = 0;
-                std::mem::take(m.get_mut())
+                std::mem::take(data.get_mut())
             }
         })
     }
@@ -35,12 +36,13 @@ impl Stream {
             self.seek(SeekFrom::End(0))?;
             match &mut self.data.get_mut() {
                 #[cfg(feature = "file")]
-                Data::File(f) => {
+                Data::File { data, .. } => {
                     use std::io::Write;
-                    f.write_all(&vec![0_u8; padding as usize])?;
+                    data.write_all(&vec![0_u8; padding as usize])?;
                 }
-                Data::Mem(m) => {
-                    m.get_mut().resize((*self.length.borrow() + padding) as usize, 0u8);
+                Data::Mem { data, .. } => {
+                    data.get_mut()
+                        .resize((*self.length.borrow() + padding) as usize, 0u8);
                 }
             }
             self.un_pin()?;

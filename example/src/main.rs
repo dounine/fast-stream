@@ -1,7 +1,9 @@
-use fast_stream::bytes::Bytes;
 use fast_stream::derive::NumToEnum;
 use fast_stream::pin::Pin;
-use fast_stream::stream::{Data, Stream};
+use fast_stream::stream::Stream;
+use sha1::{Digest, Sha1};
+use std::fs;
+use std::io::Write;
 
 ///
 #[repr(u32)]
@@ -14,11 +16,25 @@ fn main() {
     let mut data = Stream::empty();
     // let f = std::fs::File::open("").unwrap();
     // Stream::new(Data::File(f));
-    let mut stream = Stream::new(Vec::with_capacity(1024).into());
-    let length = stream.length();
-    println!("{}", length);
-    let data = stream.take_data().unwrap();
-    println!("data {:?}", data);
+    let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+    // fs::read("./README.md").unwrap();
+    let mut stream = Stream::empty();
+    stream.init_sha();
+    // stream.write_all(&data).unwrap();
+    stream.write_value(data.clone()).unwrap();
+    // stream.write(&data).unwrap();
+    stream.flush().unwrap();
+    let sha1 = stream.sha1_value();
+
+    let mut sha1_hasher = Sha1::new();
+    sha1_hasher.update(&data);
+    let sha_1: Vec<u8> = sha1_hasher.finalize().to_vec();
+    assert_eq!(sha1, sha_1);
+    // let mut stream = Stream::new(Vec::with_capacity(1024).into());
+    // let length = stream.length();
+    // println!("{}", length);
+    // let data = stream.take_data().unwrap();
+    // println!("data {:?}", data);
     // let mut dd = Stream::new(vec![3, 3, 3].into());
     // data.append(&mut dd).unwrap();
     // data.seek_start().unwrap();

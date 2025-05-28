@@ -38,7 +38,7 @@ pub trait ValueWrite: Sized {
 }
 pub trait Bytes {
     fn append(&mut self, data: &mut Stream) -> io::Result<u64>;
-    fn merge(&mut self, dest: Stream) -> io::Result<u64>;
+    // fn merge(&mut self, dest: Stream) -> io::Result<u64>;
     fn read_value<Value: ValueRead>(&mut self) -> io::Result<Value>;
     fn read_value_args<Value: ValueRead, T: StreamSized>(
         &mut self,
@@ -90,9 +90,10 @@ impl Stream {
 }
 #[allow(dead_code)]
 impl Bytes for Stream {
-    fn append(&mut self, data: &mut Stream) -> io::Result<u64> {
+    fn append(&mut self, reader: &mut Stream) -> io::Result<u64> {
         let position = self.stream_position()?;
-        let bytes = self.data.borrow_mut().merge(data.data.get_mut())?;
+        let mut writer = self.data.borrow_mut();
+        let bytes = writer.copy(reader.data.get_mut())?;
         if *self.length.borrow() == position {
             *self.length.borrow_mut() += bytes;
         } else {
@@ -103,21 +104,21 @@ impl Bytes for Stream {
         }
         Ok(bytes)
     }
-    fn merge(&mut self, dest: Stream) -> io::Result<u64> {
-        let data = dest.data;
-        data.borrow_mut().seek(SeekFrom::Start(0))?;
-        let position = self.stream_position()?;
-        let bytes = self.data.borrow_mut().merge(&mut data.borrow_mut())?;
-        if *self.length.borrow() == position {
-            *self.length.borrow_mut() += bytes;
-        } else {
-            if position + bytes > *self.length.borrow() {
-                // 如果写入的数据超出了当前流的长度，更新流的长度
-                *self.length.borrow_mut() = position + bytes;
-            }
-        }
-        Ok(bytes)
-    }
+    // fn merge(&mut self, dest: Stream) -> io::Result<u64> {
+    //     let data = dest.data;
+    //     data.borrow_mut().seek(SeekFrom::Start(0))?;
+    //     let position = self.stream_position()?;
+    //     let bytes = self.data.borrow_mut().copy(&mut data.borrow_mut())?;
+    //     if *self.length.borrow() == position {
+    //         *self.length.borrow_mut() += bytes;
+    //     } else {
+    //         if position + bytes > *self.length.borrow() {
+    //             // 如果写入的数据超出了当前流的长度，更新流的长度
+    //             *self.length.borrow_mut() = position + bytes;
+    //         }
+    //     }
+    //     Ok(bytes)
+    // }
     fn read_value<Value: ValueRead>(&mut self) -> io::Result<Value> {
         Value::read(self)
     }
@@ -165,11 +166,11 @@ impl Bytes for Stream {
 
         match &mut self.data.get_mut() {
             #[cfg(feature = "file")]
-            Data::File(f) => {
-                f.set_len(new_len as u64)?;
+            Data::File { data, .. } => {
+                data.set_len(new_len as u64)?;
             }
-            Data::Mem(m) => {
-                m.get_mut().truncate(new_len);
+            Data::Mem { data, .. } => {
+                data.get_mut().truncate(new_len);
             }
         }
         self.un_pin()?;
@@ -190,7 +191,7 @@ impl Bytes for Stream {
         self.pin()?;
         match &mut self.data.get_mut() {
             #[cfg(feature = "file")]
-            Data::File(f) => {
+            Data::File { data: f, .. } => {
                 f.seek(SeekFrom::Start(pos))?;
                 // 读取插入点之后的数据
                 let mut remaining_data = Vec::new();
@@ -200,9 +201,10 @@ impl Bytes for Stream {
                 f.write_all(&remaining_data)?;
                 *self.length.borrow_mut() += replace_with.len() as u64;
             }
-            Data::Mem(m) => {
+            Data::Mem { data, .. } => {
                 *self.length.borrow_mut() += replace_with.len() as u64;
-                m.get_mut().splice(pos as usize..pos as usize, replace_with);
+                data.get_mut()
+                    .splice(pos as usize..pos as usize, replace_with);
             }
         }
         self.un_pin()?;
@@ -222,8 +224,9 @@ impl Bytes for Stream {
 }
 impl Stream {
     pub fn write_value<Value: ValueWrite>(&mut self, value: Value) -> io::Result<&mut Self> {
-        let data = value.write_args::<bool>(&self.endian, &None)?;
-        self.merge(data)?;
+        let mut data = value.write_args::<bool>(&self.endian, &None)?;
+        data.seek_start()?;
+        self.append(&mut data)?;
         Ok(self)
     }
     pub fn write_value_args<Value: ValueWrite, T: StreamSized>(
@@ -231,8 +234,9 @@ impl Stream {
         value: Value,
         args: &Option<T>,
     ) -> io::Result<&mut Self> {
-        let data = value.write_args::<T>(&self.endian, args)?;
-        self.merge(data)?;
+        let mut data = value.write_args::<T>(&self.endian, args)?;
+        data.seek_start()?;
+        self.append(&mut data)?;
         Ok(self)
     }
 }

@@ -1,4 +1,7 @@
 use crate::endian::Endian;
+use crate::pin::Pin;
+use sha1::{Digest, Sha1};
+use sha2::{Sha256};
 use std::cell::RefCell;
 use std::io;
 use std::io::{Cursor, Error, ErrorKind, Read, Seek, SeekFrom, Write};
@@ -6,28 +9,103 @@ use std::io::{Cursor, Error, ErrorKind, Read, Seek, SeekFrom, Write};
 #[derive(Debug)]
 pub enum Data {
     #[cfg(feature = "file")]
-    File(std::fs::File),
-    Mem(Cursor<Vec<u8>>),
+    File {
+        sha1: Option<Sha1>,
+        sha2: Option<Sha256>,
+        data: std::fs::File,
+    },
+    Mem {
+        sha1: Option<Sha1>,
+        sha2: Option<Sha256>,
+        data: Cursor<Vec<u8>>,
+    },
 }
 impl Data {
+    pub(crate) fn init_sha(&mut self) {
+        match self {
+            #[cfg(feature = "file")]
+            Data::File { sha1, sha2, .. } => {
+                *sha1 = Some(Sha1::new());
+                *sha2 = Some(Sha256::new());
+            }
+            Data::Mem { sha1, sha2, .. } => {
+                *sha1 = Some(Sha1::new());
+                *sha2 = Some(Sha256::new());
+            }
+        }
+    }
+    pub fn sha_update(&mut self, data: &[u8]) -> Result<(), Error> {
+        match self {
+            #[cfg(feature = "file")]
+            Data::File { sha1, sha2, .. } => {
+                if let Some(sha1) = sha1 {
+                    sha1.update(data);
+                }
+                if let Some(sha2) = sha2 {
+                    sha2.update(data);
+                }
+            }
+            Data::Mem { sha1, sha2, .. } => {
+                if let Some(sha1) = sha1 {
+                    sha1.update(data);
+                }
+                if let Some(sha2) = sha2 {
+                    sha2.update(data);
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn sha1_value(&mut self) -> Vec<u8> {
+        match self {
+            #[cfg(feature = "file")]
+            Data::File { sha1, .. } => {
+                if let Some(sha1) = sha1.take() {
+                    return sha1.finalize().to_vec();
+                }
+            }
+            Data::Mem { sha1, .. } => {
+                if let Some(sha1) = sha1.take() {
+                    return sha1.finalize().to_vec();
+                }
+            }
+        }
+        vec![]
+    }
+    pub fn sha2_value(&mut self) -> Vec<u8> {
+        match self {
+            #[cfg(feature = "file")]
+            Data::File { sha2, .. } => {
+                if let Some(sha2) = sha2.take() {
+                    return sha2.finalize().to_vec();
+                }
+            }
+            Data::Mem { sha2, .. } => {
+                if let Some(sha2) = sha2.take() {
+                    return sha2.finalize().to_vec();
+                }
+            }
+        }
+        vec![]
+    }
     pub fn clear(&mut self) -> io::Result<()> {
         Ok(match self {
             #[cfg(feature = "file")]
-            Data::File(f) => {
-                f.set_len(0)?;
+            Data::File { data, .. } => {
+                data.set_len(0)?;
                 ()
             }
-            Data::Mem(f) => {
-                f.set_position(0);
-                f.get_mut().clear();
+            Data::Mem { data, .. } => {
+                data.set_position(0);
+                data.get_mut().clear();
                 ()
             }
         })
     }
-    pub fn copy(&mut self) -> io::Result<Self> {
+    pub fn clone(&mut self) -> io::Result<Self> {
         Ok(match self {
             #[cfg(feature = "file")]
-            Data::File(f) => {
+            Data::File { data: f, .. } => {
                 let position = f.stream_position()?;
                 let mut tmp_file = tempfile::tempfile()?;
                 // tmp_file.set_len(f.metadata()?.len())?;
@@ -36,60 +114,59 @@ impl Data {
                 f.seek(SeekFrom::Start(position))?;
                 tmp_file.into()
             }
-            Data::Mem(f) => {
-                let mut data = f.clone();
+            Data::Mem { data, .. } => {
+                let mut data = data.clone();
                 data.set_position(0);
-                Data::Mem(data)
+                Data::Mem {
+                    data,
+                    sha1: None,
+                    sha2: None,
+                }
             }
         })
     }
     pub fn copy_data(&mut self) -> io::Result<Vec<u8>> {
         let data = match self {
             #[cfg(feature = "file")]
-            Data::File(f) => {
+            Data::File { data: f, .. } => {
                 use std::io::Read;
                 let mut data = vec![];
                 f.read_to_end(&mut data)?;
                 data
             }
-            Data::Mem(m) => {
-                // let mut data = vec![];
-                // m.read_to_end(&mut data)?;
-                // data
-                m.get_ref().to_vec()
-            }
+            Data::Mem { data, .. } => data.get_ref().to_vec(),
         };
         Ok(data)
     }
-    pub(crate) fn merge(&mut self, other: &mut Data) -> io::Result<u64> {
-        Ok(match (self, other) {
-            #[cfg(feature = "file")]
-            (Data::File(writer), Data::File(reader)) => std::io::copy(reader, writer)?,
-            #[cfg(feature = "file")]
-            (Data::File(writer), Data::Mem(reader)) => std::io::copy(reader, writer)?,
-            #[cfg(feature = "file")]
-            (Data::Mem(writer), Data::File(reader)) => std::io::copy(reader, writer)?,
-            (Data::Mem(writer), Data::Mem(reader)) => std::io::copy(reader, writer)?,
-        })
+    pub fn copy(&mut self, other: &mut Data) -> io::Result<u64> {
+        std::io::copy(other, self)
     }
 }
 #[cfg(feature = "file")]
 impl From<std::fs::File> for Data {
     fn from(value: std::fs::File) -> Self {
-        Data::File(value)
+        Data::File {
+            data: value,
+            sha1: None,
+            sha2: None,
+        }
     }
 }
 impl From<Vec<u8>> for Data {
     fn from(value: Vec<u8>) -> Self {
-        Data::Mem(Cursor::new(value))
+        Data::Mem {
+            data: Cursor::new(value),
+            sha1: None,
+            sha2: None,
+        }
     }
 }
 impl Seek for Data {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         match self {
             #[cfg(feature = "file")]
-            Data::File(f) => f.seek(pos),
-            Data::Mem(m) => m.seek(pos),
+            Data::File { data, .. } => data.seek(pos),
+            Data::Mem { data, .. } => data.seek(pos),
         }
     }
 }
@@ -97,8 +174,8 @@ impl Read for Data {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         match self {
             #[cfg(feature = "file")]
-            Data::File(f) => f.read(buf),
-            Data::Mem(m) => m.read(buf),
+            Data::File { data, .. } => data.read(buf),
+            Data::Mem { data, .. } => data.read(buf),
         }
     }
 }
@@ -106,16 +183,36 @@ impl Write for Data {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match self {
             #[cfg(feature = "file")]
-            Data::File(f) => f.write(buf),
-            Data::Mem(m) => m.write(buf),
+            Data::File {
+                data, sha1, sha2, ..
+            } => {
+                if let Some(sha1) = sha1 {
+                    sha1.update(buf);
+                }
+                if let Some(sha2) = sha2 {
+                    sha2.update(buf);
+                }
+                data.write(buf)
+            }
+            Data::Mem {
+                data, sha1, sha2, ..
+            } => {
+                if let Some(sha1) = sha1 {
+                    sha1.update(buf);
+                }
+                if let Some(sha2) = sha2 {
+                    sha2.update(buf);
+                }
+                data.write(buf)
+            }
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
         match self {
             #[cfg(feature = "file")]
-            Data::File(f) => f.flush(),
-            Data::Mem(m) => m.flush(),
+            Data::File { data, .. } => data.flush(),
+            Data::Mem { data, .. } => data.flush(),
         }
     }
 }
@@ -126,7 +223,15 @@ pub struct Stream {
     pub data: RefCell<Data>,
     pub endian: Endian,
     pub(crate) length: RefCell<u64>,
-    pub pins: RefCell<Vec<u64>>,
+    pub(crate) pins: RefCell<Vec<u64>>,
+}
+impl Stream {
+    pub fn sha1_value(&mut self) -> Vec<u8> {
+        self.data.borrow_mut().sha1_value()
+    }
+    pub fn sha2_value(&mut self) -> Vec<u8> {
+        self.data.borrow_mut().sha2_value()
+    }
 }
 impl From<Vec<u8>> for Stream {
     fn from(value: Vec<u8>) -> Self {
@@ -141,7 +246,7 @@ impl From<Vec<u8>> for Stream {
 }
 impl Clone for Stream {
     fn clone(&self) -> Self {
-        let data = self.data.borrow_mut().copy().unwrap();
+        let data = self.data.borrow_mut().clone().unwrap();
         let mut stream = Stream::new(data);
         stream.with_endian(self.endian.clone());
         stream
@@ -154,19 +259,33 @@ impl Stream {
         self.pins.borrow_mut().clear();
         Ok(())
     }
+    pub fn sha_computer(&mut self) -> io::Result<()> {
+        self.pin()?;
+        self.seek_start()?;
+        loop {
+            let mut bytes = [0; 1024 * 4];
+            let size = self.read(&mut bytes)?;
+            if size == 0 {
+                break;
+            }
+            self.data.borrow_mut().sha_update(&bytes[..size])?;
+        }
+        self.un_pin()?;
+        Ok(())
+    }
     pub fn is_empty(&self) -> bool {
         *self.length.borrow() == 0
     }
     pub fn clone(&mut self) -> io::Result<Self> {
         self.seek_start()?;
-        let mut s = Self::new(self.data.get_mut().copy()?);
+        let mut s = Self::new(self.data.get_mut().clone()?);
         s.with_endian(self.endian.clone());
         self.seek_start()?;
         Ok(s)
     }
     pub fn clone_stream(&mut self) -> io::Result<Self> {
         self.seek_start()?;
-        let mut s = Self::new(self.data.get_mut().copy()?);
+        let mut s = Self::new(self.data.get_mut().clone()?);
         s.with_endian(self.endian.clone());
         self.seek_start()?;
         Ok(s)
@@ -174,7 +293,7 @@ impl Stream {
     pub fn copy_size_from(&mut self, stream: &mut Stream, size: usize) -> io::Result<()> {
         Ok(match stream.data.get_mut() {
             #[cfg(feature = "file")]
-            Data::File(f) => {
+            Data::File { data: f, .. } => {
                 // let mut tmp_file = tempfile::tempfile()?;
                 let chunk_size = 4096;
                 let mut buffer = vec![0u8; chunk_size]; // 4KB 缓冲区
@@ -200,14 +319,14 @@ impl Stream {
                 // s.with_endian(self.endian.clone());
                 // s
             }
-            Data::Mem(m) => {
+            Data::Mem { data, .. } => {
                 let chunk_size = 4096;
                 let mut buffer = vec![0u8; chunk_size]; // 4KB 缓冲区
                 let mut copied = 0;
 
                 while copied < size {
                     let read_size = (size - copied).min(chunk_size);
-                    let n = m.read(&mut buffer[..read_size])?;
+                    let n = data.read(&mut buffer[..read_size])?;
                     if n == 0 {
                         break;
                     } // 数据源提前耗尽
@@ -230,7 +349,7 @@ impl Stream {
     pub fn copy_size(&mut self, size: usize) -> io::Result<Self> {
         Ok(match self.data.get_mut() {
             #[cfg(feature = "file")]
-            Data::File(f) => {
+            Data::File { data: f, .. } => {
                 let mut tmp_file = tempfile::tempfile()?;
                 let chunk_size = 4096;
                 let mut buffer = vec![0u8; chunk_size]; // 4KB 缓冲区
@@ -256,9 +375,9 @@ impl Stream {
                 s.with_endian(self.endian.clone());
                 s
             }
-            Data::Mem(m) => {
-                let position = m.position() as usize;
-                let mut s = Self::new(m.get_ref()[position..position + size].to_vec().into());
+            Data::Mem { data, .. } => {
+                let position = data.position() as usize;
+                let mut s = Self::new(data.get_ref()[position..position + size].to_vec().into());
                 s.with_endian(self.endian.clone());
                 s
             }
@@ -267,14 +386,14 @@ impl Stream {
     pub fn copy_empty(&self) -> io::Result<Self> {
         Ok(match &*self.data.borrow() {
             #[cfg(feature = "file")]
-            Data::File(_) => {
+            Data::File { .. } => {
                 let mut tmp_file = tempfile::tempfile()?;
                 tmp_file.seek(SeekFrom::Start(0))?;
                 let mut s = Self::new(tmp_file.into());
                 s.with_endian(self.endian.clone());
                 s
             }
-            Data::Mem(_) => {
+            Data::Mem { .. } => {
                 let mut s = Self::new(vec![].into());
                 s.with_endian(self.endian.clone());
                 s
@@ -284,14 +403,14 @@ impl Stream {
     pub fn copy_empty_with_capacity(&self, capacity: usize) -> io::Result<Self> {
         Ok(match &*self.data.borrow() {
             #[cfg(feature = "file")]
-            Data::File(_) => {
+            Data::File { .. } => {
                 let mut tmp_file = tempfile::tempfile()?;
                 tmp_file.seek(SeekFrom::Start(0))?;
                 let mut s = Self::new(tmp_file.into());
                 s.with_endian(self.endian.clone());
                 s
             }
-            Data::Mem(_) => {
+            Data::Mem { .. } => {
                 let mut s = Self::new(Vec::with_capacity(capacity).into());
                 s.with_endian(self.endian.clone());
                 s
@@ -301,15 +420,15 @@ impl Stream {
     pub fn copy_empty_same_capacity(&self) -> io::Result<Self> {
         Ok(match &*self.data.borrow() {
             #[cfg(feature = "file")]
-            Data::File(_) => {
+            Data::File { .. } => {
                 let mut tmp_file = tempfile::tempfile()?;
                 tmp_file.seek(SeekFrom::Start(0))?;
                 let mut s = Self::new(tmp_file.into());
                 s.with_endian(self.endian.clone());
                 s
             }
-            Data::Mem(f) => {
-                let mut s = Self::new(Vec::with_capacity(f.get_ref().len()).into());
+            Data::Mem { data, .. } => {
+                let mut s = Self::new(Vec::with_capacity(data.get_ref().len()).into());
                 s.with_endian(self.endian.clone());
                 s
             }
@@ -353,11 +472,14 @@ impl Stream {
 }
 #[allow(dead_code)]
 impl Stream {
+    pub fn init_sha(&mut self) {
+        self.data.borrow_mut().init_sha();
+    }
     pub fn new(data: Data) -> Stream {
         let length = match &data {
             #[cfg(feature = "file")]
-            Data::File(f) => f.metadata().unwrap().len(),
-            Data::Mem(m) => m.get_ref().len() as u64,
+            Data::File { data, .. } => data.metadata().unwrap().len(),
+            Data::Mem { data, .. } => data.get_ref().len() as u64,
         };
         Self {
             data: RefCell::new(data),
