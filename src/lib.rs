@@ -1,7 +1,7 @@
 pub mod align;
 pub mod bytes;
-#[cfg(feature = "crc32")]
-pub mod crc32;
+// #[cfg(feature = "crc32")]
+// pub mod crc32;
 pub mod endian;
 pub mod pin;
 pub mod stream;

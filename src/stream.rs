@@ -1,7 +1,8 @@
 use crate::endian::Endian;
 use crate::pin::Pin;
+use crc32fast::Hasher;
 use sha1::{Digest, Sha1};
-use sha2::{Sha256};
+use sha2::Sha256;
 use std::cell::RefCell;
 use std::io;
 use std::io::{Cursor, Error, ErrorKind, Read, Seek, SeekFrom, Write};
@@ -10,11 +11,13 @@ use std::io::{Cursor, Error, ErrorKind, Read, Seek, SeekFrom, Write};
 pub enum Data {
     #[cfg(feature = "file")]
     File {
+        crc32: Option<Hasher>,
         sha1: Option<Sha1>,
         sha2: Option<Sha256>,
         data: std::fs::File,
     },
     Mem {
+        crc32: Option<Hasher>,
         sha1: Option<Sha1>,
         sha2: Option<Sha256>,
         data: Cursor<Vec<u8>>,
@@ -34,10 +37,26 @@ impl Data {
             }
         }
     }
-    pub fn sha_update(&mut self, data: &[u8]) -> Result<(), Error> {
+    pub(crate) fn init_crc32(&mut self) {
         match self {
             #[cfg(feature = "file")]
-            Data::File { sha1, sha2, .. } => {
+            Data::File { crc32, .. } => {
+                *crc32 = Some(Hasher::new());
+            }
+            Data::Mem { crc32, .. } => {
+                *crc32 = Some(Hasher::new());
+            }
+        }
+    }
+    pub fn hash_update(&mut self, data: &[u8]) -> Result<(), Error> {
+        match self {
+            #[cfg(feature = "file")]
+            Data::File {
+                sha1, sha2, crc32, ..
+            } => {
+                if let Some(crc32) = crc32 {
+                    crc32.update(data);
+                }
                 if let Some(sha1) = sha1 {
                     sha1.update(data);
                 }
@@ -45,7 +64,12 @@ impl Data {
                     sha2.update(data);
                 }
             }
-            Data::Mem { sha1, sha2, .. } => {
+            Data::Mem {
+                sha1, sha2, crc32, ..
+            } => {
+                if let Some(crc32) = crc32 {
+                    crc32.update(data);
+                }
                 if let Some(sha1) = sha1 {
                     sha1.update(data);
                 }
@@ -55,6 +79,22 @@ impl Data {
             }
         }
         Ok(())
+    }
+    pub fn crc32_value(&mut self) -> u32 {
+        match self {
+            #[cfg(feature = "file")]
+            Data::File { crc32, .. } => {
+                if let Some(crc32) = crc32.take() {
+                    return crc32.finalize();
+                }
+            }
+            Data::Mem { crc32, .. } => {
+                if let Some(crc32) = crc32.take() {
+                    return crc32.finalize();
+                }
+            }
+        }
+        0
     }
     pub fn sha1_value(&mut self) -> Vec<u8> {
         match self {
@@ -119,6 +159,7 @@ impl Data {
                 data.set_position(0);
                 Data::Mem {
                     data,
+                    crc32: None,
                     sha1: None,
                     sha2: None,
                 }
@@ -147,6 +188,7 @@ impl From<std::fs::File> for Data {
     fn from(value: std::fs::File) -> Self {
         Data::File {
             data: value,
+            crc32: None,
             sha1: None,
             sha2: None,
         }
@@ -156,6 +198,7 @@ impl From<Vec<u8>> for Data {
     fn from(value: Vec<u8>) -> Self {
         Data::Mem {
             data: Cursor::new(value),
+            crc32: None,
             sha1: None,
             sha2: None,
         }
@@ -184,8 +227,15 @@ impl Write for Data {
         match self {
             #[cfg(feature = "file")]
             Data::File {
-                data, sha1, sha2, ..
+                data,
+                sha1,
+                sha2,
+                crc32,
+                ..
             } => {
+                if let Some(crc32) = crc32 {
+                    crc32.update(buf);
+                }
                 if let Some(sha1) = sha1 {
                     sha1.update(buf);
                 }
@@ -195,8 +245,15 @@ impl Write for Data {
                 data.write(buf)
             }
             Data::Mem {
-                data, sha1, sha2, ..
+                data,
+                sha1,
+                sha2,
+                crc32,
+                ..
             } => {
+                if let Some(crc32) = crc32 {
+                    crc32.update(buf);
+                }
                 if let Some(sha1) = sha1 {
                     sha1.update(buf);
                 }
@@ -229,6 +286,9 @@ impl Stream {
     pub fn sha1_value(&mut self) -> Vec<u8> {
         self.data.borrow_mut().sha1_value()
     }
+    pub fn crc32_value(&mut self) -> u32 {
+        self.data.borrow_mut().crc32_value()
+    }
     pub fn sha2_value(&mut self) -> Vec<u8> {
         self.data.borrow_mut().sha2_value()
     }
@@ -259,7 +319,7 @@ impl Stream {
         self.pins.borrow_mut().clear();
         Ok(())
     }
-    pub fn sha_computer(&mut self) -> io::Result<()> {
+    pub fn hash_computer(&mut self) -> io::Result<()> {
         self.pin()?;
         self.seek_start()?;
         loop {
@@ -268,7 +328,7 @@ impl Stream {
             if size == 0 {
                 break;
             }
-            self.data.borrow_mut().sha_update(&bytes[..size])?;
+            self.data.borrow_mut().hash_update(&bytes[..size])?;
         }
         self.un_pin()?;
         Ok(())
@@ -474,6 +534,9 @@ impl Stream {
 impl Stream {
     pub fn init_sha(&mut self) {
         self.data.borrow_mut().init_sha();
+    }
+    pub fn init_crc32(&mut self) {
+        self.data.borrow_mut().init_crc32();
     }
     pub fn new(data: Data) -> Stream {
         let length = match &data {
