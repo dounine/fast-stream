@@ -35,10 +35,12 @@ impl Pin for Stream {
      */
     fn un_pin_size(&mut self, size: u64) -> io::Result<&mut Self> {
         let current_position = self.data.borrow_mut().stream_position()?;
-        if let Some(position) = self.pins.borrow_mut().pop() {
-            if current_position - position != size {
-                self.data.borrow_mut().seek(SeekFrom::Start(position + size))?;
-            }
+        if let Some(position) = self.pins.borrow_mut().pop()
+            && current_position - position != size
+        {
+            self.data
+                .borrow_mut()
+                .seek(SeekFrom::Start(position + size))?;
         }
         Ok(self)
     }

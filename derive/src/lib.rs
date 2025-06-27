@@ -2,7 +2,6 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Data, DeriveInput, ExprLit, Fields, Meta, Type};
 
-
 ///
 /// #[repr(u32)]
 /// #[derive(Debug, NumToEnum)]
@@ -39,15 +38,15 @@ pub fn num_to_enum(input: TokenStream) -> TokenStream {
                 Fields::Named(_) => {}
                 Fields::Unnamed(v) => {
                     if let Some(name) = v.unnamed.first() {
-                        if let Type::Path(ty, ..) = &name.ty {
-                            if let Some(_seg) = ty.path.segments.first() {
-                                into_fields.push(quote! {
-                                  #enum_name::#field_name(value) => value,
-                                });
-                                from_fields.push(quote! {
-                                   value => #enum_name::#field_name(value),
-                                });
-                            }
+                        if let Type::Path(ty, ..) = &name.ty
+                            && let Some(_seg) = ty.path.segments.first()
+                        {
+                            into_fields.push(quote! {
+                              #enum_name::#field_name(value) => value,
+                            });
+                            from_fields.push(quote! {
+                               value => #enum_name::#field_name(value),
+                            });
                         }
                     }
                 }
