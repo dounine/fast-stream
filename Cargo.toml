@@ -24,7 +24,7 @@ optional = true
 version = "1.4.2"
 optional = true
 [dependencies.miniz_oxide]
-path = "../miniz_oxide"
+git = "https://github.com/dounine/miniz_oxide"
 optional = true
 [dependencies.tempfile]
 version = "3.19.1"
