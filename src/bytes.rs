@@ -2,6 +2,7 @@ use crate::endian::Endian;
 use crate::pin::Pin;
 use crate::stream::{Data, Stream};
 use std::any::Any;
+use std::arch::aarch64::uint8x8_t;
 use std::io::{Error, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::RangeBounds;
 use std::{io, ops};
@@ -314,6 +315,17 @@ impl ValueWrite for String {
         let mut data = self.as_bytes().to_vec();
         data.push(0_u8);
         Ok(data.into())
+    }
+}
+impl ValueWrite for bool {
+    fn write_args<T: StreamSized>(self, endian: &Endian, args: &Option<T>) -> io::Result<Stream> {
+        u8::from(self).write_args(endian, args)
+    }
+}
+impl ValueRead for bool {
+    fn read_args<T: StreamSized>(stream: &mut Stream, args: &Option<T>) -> io::Result<Self> {
+        let value = u8::read_args(stream, args)?;
+        Ok(value == 1)
     }
 }
 impl ValueWrite for Vec<u8> {
