@@ -311,7 +311,9 @@ macro_rules! enum_to_bytes {
 }
 impl ValueWrite for String {
     fn write_args<T: StreamSized>(self, _endian: &Endian, _args: &Option<T>) -> io::Result<Stream> {
-        Ok(self.as_bytes().to_vec().into())
+        let mut data = self.as_bytes().to_vec();
+        data.push(0_u8);
+        Ok(data.into())
     }
 }
 impl ValueWrite for Vec<u8> {
@@ -337,12 +339,7 @@ impl ValueRead for String {
             bytes.push(byte);
         }
         String::from_utf8(bytes)
-            .map_err(|e| {
-                Error::new(
-                    ErrorKind::InvalidData,
-                    format!("bytes to string {}", e),
-                )
-            })
+            .map_err(|e| Error::new(ErrorKind::InvalidData, format!("bytes to string {}", e)))
     }
 }
 #[cfg(test)]
