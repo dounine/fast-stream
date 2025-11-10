@@ -282,12 +282,19 @@ pub struct Stream {
     pub(crate) length: RefCell<u64>,
     pub(crate) pins: RefCell<Vec<u64>>,
 }
-
+#[cfg(feature = "bin")]
+impl bincode::enc::write::Writer for Stream {
+    fn write(&mut self, bytes: &[u8]) -> Result<(),  bincode::error::EncodeError> {
+        bincode::enc::write::Writer::write(self, bytes)?;
+        Ok(())
+    }
+}
 #[cfg(feature = "bin")]
 impl bincode::de::read::Reader for Stream {
     fn read(&mut self, bytes: &mut [u8]) -> Result<(), bincode::error::DecodeError> {
-        self.read_exact(bytes)
-            .map_err(|e| bincode::error::DecodeError::OtherString(e.to_string()))?;
+        bincode::de::read::Reader::read(self, bytes)?;
+        // self.read_exact(bytes)
+        //     .map_err(|e| bincode::error::DecodeError::OtherString(e.to_string()))?;
         Ok(())
     }
 }
