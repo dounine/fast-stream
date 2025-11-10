@@ -326,6 +326,25 @@ impl ValueRead for [u8; 4] {
         Ok(value)
     }
 }
+impl ValueRead for String {
+    fn read_args<T: StreamSized>(stream: &mut Stream, _args: &Option<T>) -> io::Result<Self> {
+        let mut bytes = vec![];
+        loop {
+            let byte: u8 = stream.read_value()?;
+            if byte == 0 {
+                break;
+            }
+            bytes.push(byte);
+        }
+        String::from_utf8(bytes)
+            .map_err(|e| {
+                Error::new(
+                    ErrorKind::InvalidData,
+                    format!("bytes to string {}", e),
+                )
+            })
+    }
+}
 #[cfg(test)]
 mod test {
     use crate::bytes::Bytes;
