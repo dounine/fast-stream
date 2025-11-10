@@ -1,9 +1,11 @@
+use fast_stream::bytes::Bytes;
 use fast_stream::derive::NumToEnum;
 use fast_stream::pin::Pin;
 use fast_stream::stream::Stream;
 use sha1::{Digest, Sha1};
 use std::fs;
-use std::io::Write;
+use std::fs::Metadata;
+use std::io::{Read, SeekFrom, Write};
 
 ///
 #[repr(u32)]
@@ -12,7 +14,29 @@ pub enum Cpu {
     X84 = 1,
     Arm = 2,
 }
+pub fn test_bincode() {
+    let mut f = std::fs::File::open("/Users/lake/dounine/github/ipa/fast-stream/example/hello.txt".to_string()).unwrap();
+    let mut buffer = Vec::new();
+    f.read_to_end(&mut  buffer).unwrap();
+    let mut stream = Stream::new(f.into());
+    stream.init_crc32();
+    let crc32_value = stream.crc32_value();
+    // let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9];
+    // stream.write_all(&data).unwrap();
+
+    let config = bincode::config::standard();
+    let vec_data = bincode::encode_to_vec(stream, config).unwrap();
+
+    let (mut new_stream, size): (Stream, usize) =
+        bincode::decode_from_slice(&vec_data[..], config).unwrap();
+    new_stream.seek_start().unwrap();
+    let new_crc32_value = new_stream.crc32_value();
+    let new_data = new_stream.read_exact_size(buffer.len() as u64).unwrap();
+    assert_eq!(new_data, buffer);
+    assert_eq!(crc32_value, new_crc32_value);
+}
 fn main() {
+    test_bincode();
     let mut data = Stream::empty();
     // let f = std::fs::File::open("").unwrap();
     // Stream::new(Data::File(f));
