@@ -312,7 +312,7 @@ macro_rules! enum_to_bytes {
 impl ValueWrite for String {
     fn write_args<T: StreamSized>(self, _endian: &Endian, _args: &Option<T>) -> io::Result<Stream> {
         let mut data = self.as_bytes().to_vec();
-        data.push(0_u8);
+        // data.push(0_u8);
         Ok(data.into())
     }
 }
