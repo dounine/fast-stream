@@ -1,8 +1,7 @@
 use crate::endian::Endian;
 use crate::pin::Pin;
 use crate::stream::{Data, Stream};
-use std::any::Any;
-use std::arch::aarch64::uint8x8_t;
+use std::any::{Any};
 use std::io::{Error, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::RangeBounds;
 use std::{io, ops};
@@ -328,11 +327,6 @@ impl ValueRead for bool {
         Ok(value == 1)
     }
 }
-impl ValueWrite for Vec<u8> {
-    fn write_args<T: StreamSized>(self, _endian: &Endian, _args: &Option<T>) -> io::Result<Stream> {
-        Ok(self.clone().into())
-    }
-}
 impl ValueRead for [u8; 4] {
     fn read_args<T: StreamSized>(stream: &mut Stream, _args: &Option<T>) -> io::Result<Self> {
         let mut value = [0u8; 4];
@@ -340,6 +334,39 @@ impl ValueRead for [u8; 4] {
         Ok(value)
     }
 }
+// impl<TYPE: ValueRead> ValueRead for Vec<TYPE> {
+//     fn read_args<T: StreamSized>(stream: &mut Stream, args: &Option<T>) -> io::Result<Self> {
+//         let len: u64 = stream.read_value_args(args)?;
+//         let mut values = Vec::with_capacity(len as usize);
+//         for _ in 0..len {
+//             values.push(stream.read_value_args(args)?);
+//         }
+//         Ok(values)
+//     }
+// }
+impl<TYPE: 'static + ValueWrite> ValueWrite for Vec<TYPE> {
+    fn write_args<T: StreamSized>(self, endian: &Endian, args: &Option<T>) -> io::Result<Stream> {
+        // if TypeId::of::<TYPE>() == TypeId::of::<u8>() {
+        //     let data: Vec<u8> = unsafe { std::mem::transmute(self) };
+        //     return Ok(data.into());
+        // }
+        let mut stream = Stream::empty();
+        stream.with_endian(endian.clone());
+        // let len = self.len() as u64;
+        // stream.write_value_args(endian, &len)?;
+        for item in self {
+            stream.write_value_args(item, args)?;
+        }
+        Ok(stream)
+    }
+}
+// impl<TYPE: 'static + ValueWrite> ValueWrite for Vec<TYPE> {
+//     fn write_args<T: StreamSized>(self, endian: &Endian, args: &Option<T>) -> io::Result<Stream> {
+//         let mut data: Stream = self.into();
+//         data.with_endian(endian.clone());
+//         Ok(data)
+//     }
+// }
 impl ValueRead for String {
     fn read_args<T: StreamSized>(stream: &mut Stream, _args: &Option<T>) -> io::Result<Self> {
         let mut bytes = vec![];
