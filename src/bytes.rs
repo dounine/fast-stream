@@ -1,7 +1,7 @@
 use crate::endian::Endian;
 use crate::pin::Pin;
 use crate::stream::{Data, Stream};
-use std::any::{Any};
+use std::any::{Any, TypeId};
 use std::io::{Error, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::RangeBounds;
 use std::{io, ops};
@@ -334,26 +334,53 @@ impl ValueRead for [u8; 4] {
         Ok(value)
     }
 }
-// impl<TYPE: ValueRead> ValueRead for Vec<TYPE> {
-//     fn read_args<T: StreamSized>(stream: &mut Stream, args: &Option<T>) -> io::Result<Self> {
-//         let len: u64 = stream.read_value_args(args)?;
-//         let mut values = Vec::with_capacity(len as usize);
-//         for _ in 0..len {
-//             values.push(stream.read_value_args(args)?);
-//         }
-//         Ok(values)
-//     }
-// }
-impl<TYPE: 'static + ValueWrite> ValueWrite for Vec<TYPE> {
+impl<TYPE: 'static + ValueRead> ValueRead for Vec<TYPE> {
+    fn read_args<T: StreamSized>(stream: &mut Stream, args: &Option<T>) -> io::Result<Self> {
+        let len: u64 = stream.read_value_args(args)?;
+        let mut values = Vec::with_capacity(len as usize);
+        if TypeId::of::<TYPE>() == TypeId::of::<u8>() {
+            let data: Vec<u8> = stream.read_exact_size(len)?;
+            let convert: Vec<TYPE> = unsafe { std::mem::transmute(data) };
+            return Ok(convert);
+        }
+        for _ in 0..len {
+            values.push(stream.read_value_args(args)?);
+        }
+        Ok(values)
+    }
+}
+impl<TYPE: 'static + ValueRead> ValueRead for Option<TYPE> {
+    fn read_args<T: StreamSized>(stream: &mut Stream, args: &Option<T>) -> io::Result<Self> {
+        let exit: bool = stream.read_value_args(args)?;
+        if exit {
+            Ok(Some(stream.read_value_args(args)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+impl<TYPE: 'static + ValueWrite> ValueWrite for Option<TYPE> {
     fn write_args<T: StreamSized>(self, endian: &Endian, args: &Option<T>) -> io::Result<Stream> {
-        // if TypeId::of::<TYPE>() == TypeId::of::<u8>() {
-        //     let data: Vec<u8> = unsafe { std::mem::transmute(self) };
-        //     return Ok(data.into());
-        // }
         let mut stream = Stream::empty();
         stream.with_endian(endian.clone());
-        // let len = self.len() as u64;
-        // stream.write_value_args(endian, &len)?;
+        stream.write_value(self.is_some())?;
+        if let Some(value) = self {
+            stream.write_value_args(value, args)?;
+        }
+        Ok(stream)
+    }
+}
+impl<TYPE: 'static + ValueWrite> ValueWrite for Vec<TYPE> {
+    fn write_args<T: StreamSized>(self, endian: &Endian, args: &Option<T>) -> io::Result<Stream> {
+        let mut stream = Stream::empty();
+        stream.with_endian(endian.clone());
+        let len = self.len() as u64;
+        stream.write_value_args(len, args)?;
+        if TypeId::of::<TYPE>() == TypeId::of::<u8>() {
+            let data: Vec<u8> = unsafe { std::mem::transmute(self) };
+            stream.write(&data)?;
+            return Ok(stream);
+        }
         for item in self {
             stream.write_value_args(item, args)?;
         }

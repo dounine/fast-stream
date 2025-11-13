@@ -20,9 +20,6 @@ sha2 = "0.10.8"
 [dependencies.derive]
 path = "derive"
 optional = true
-[dependencies.bincode]
-version = "2.0.1"
-optional = true
 [dependencies.crc32fast]
 version = "1.4.2"
 optional = true
@@ -35,9 +32,8 @@ optional = true
 
 [features]
 default = ["mem"]
-all = ["file", "mem", "bin"]
+all = ["file", "mem"]
 mem = ["crc32", "deflate", "enum"]
-bin = ["bincode"]
 file = ["tempfile"]
 enum = ["derive"]
 crc32 = ["crc32fast"]

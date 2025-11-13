@@ -23,97 +23,6 @@ pub enum Data {
         data: Cursor<Vec<u8>>,
     },
 }
-impl bincode::Encode for Data {
-    fn encode<E: bincode::enc::Encoder>(
-        &self,
-        encoder: &mut E,
-    ) -> Result<(), bincode::error::EncodeError> {
-        match self {
-            #[cfg(feature = "file")]
-            Data::File {
-                data,
-                crc32,
-                sha1,
-                sha2,
-                ..
-            } => {
-                0_u8.encode(encoder)?;
-                crc32.is_some().encode(encoder)?;
-                sha1.is_some().encode(encoder)?;
-                sha2.is_some().encode(encoder)?;
-                let mut file = data
-                    .try_clone()
-                    .map_err(|e| bincode::error::EncodeError::OtherString(e.to_string()))?;
-                file.seek(SeekFrom::Start(0))
-                    .map_err(|e| bincode::error::EncodeError::OtherString(e.to_string()))?;
-                let mut buffer = Vec::new();
-                file.read_to_end(&mut buffer)
-                    .map_err(|e| bincode::error::EncodeError::OtherString(e.to_string()))?;
-                let position = file
-                    .stream_position()
-                    .map_err(|e| bincode::error::EncodeError::OtherString(e.to_string()))?;
-                position.encode(encoder)?;
-                buffer.encode(encoder)?;
-            }
-            Data::Mem {
-                data,
-                crc32,
-                sha1,
-                sha2,
-                ..
-            } => {
-                1_u8.encode(encoder)?;
-                crc32.is_some().encode(encoder)?;
-                sha1.is_some().encode(encoder)?;
-                sha2.is_some().encode(encoder)?;
-                let position = data.position();
-                position.encode(encoder)?;
-                data.get_ref().encode(encoder)?;
-            }
-        }
-        Ok(())
-    }
-}
-bincode::impl_borrow_decode!(Data);
-impl<Context> bincode::Decode<Context> for Data {
-    fn decode<D: bincode::de::Decoder<Context = Context>>(
-        decoder: &mut D,
-    ) -> Result<Self, bincode::error::DecodeError> {
-        #[allow(dead_code)]
-        let ty = u8::decode(decoder)?; //类型
-        let crc32_is = bool::decode(decoder)?; //是否有crc32类型
-        let sha1_is = bool::decode(decoder)?; //是否有sha1类型
-        let sha256_is = bool::decode(decoder)?; //是否有sha256类型
-        let position: u64 = u64::decode(decoder)?;
-        #[cfg(feature = "file")]
-        if ty == 0 {
-            let mut bytes = Vec::<u8>::decode(decoder)?;
-            let mut tmp_file = tempfile::tempfile()
-                .map_err(|e| bincode::error::DecodeError::OtherString(e.to_string()))?;
-            tmp_file
-                .write_all(&mut bytes)
-                .map_err(|e| bincode::error::DecodeError::OtherString(e.to_string()))?;
-            tmp_file
-                .seek(SeekFrom::Start(position))
-                .map_err(|e| bincode::error::DecodeError::OtherString(e.to_string()))?;
-            return Ok(Data::File {
-                crc32: if crc32_is { Some(Hasher::new()) } else { None },
-                sha1: if sha1_is { Some(Sha1::new()) } else { None },
-                sha2: if sha256_is { Some(Sha256::new()) } else { None },
-                data: tmp_file,
-            });
-        }
-        let bytes = Vec::<u8>::decode(decoder)?;
-        let mut cursor = Cursor::new(bytes);
-        cursor.set_position(position);
-        Ok(Data::Mem {
-            crc32: if crc32_is { Some(Hasher::new()) } else { None },
-            sha1: if sha1_is { Some(Sha1::new()) } else { None },
-            sha2: if sha256_is { Some(Sha256::new()) } else { None },
-            data: cursor,
-        })
-    }
-}
 impl Data {
     pub(crate) fn init_sha(&mut self) {
         match self {
@@ -364,7 +273,6 @@ impl Write for Data {
         }
     }
 }
-#[cfg(not(feature = "bin"))]
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Stream {
@@ -373,37 +281,6 @@ pub struct Stream {
     pub(crate) length: RefCell<u64>,
     pub(crate) pins: RefCell<Vec<u64>>,
 }
-#[cfg(feature = "bin")]
-#[derive(bincode::Encode, bincode::Decode, Debug)]
-#[allow(dead_code)]
-pub struct Stream {
-    pub data: RefCell<Data>,
-    pub endian: Endian,
-    pub(crate) length: RefCell<u64>,
-    pub(crate) pins: RefCell<Vec<u64>>,
-}
-// #[cfg(feature = "bin")]
-// impl bincode::enc::write::Writer for Stream {
-//     fn write(&mut self, bytes: &[u8]) -> Result<(), bincode::error::EncodeError> {
-//         bincode::enc::write::Writer::write(self, bytes)?;
-//         Ok(())
-//     }
-// }
-// impl Stream {
-//     pub fn encode(self) -> Vec<u8> {
-//         let config = bincode::config::standard();
-//         bincode::encode_to_vec(self, config).unwrap()
-//     }
-// }
-// #[cfg(feature = "bin")]
-// impl bincode::de::read::Reader for Stream {
-//     fn read(&mut self, bytes: &mut [u8]) -> Result<(), bincode::error::DecodeError> {
-//         bincode::de::read::Reader::read(self, bytes)?;
-//         // self.read_exact(bytes)
-//         //     .map_err(|e| bincode::error::DecodeError::OtherString(e.to_string()))?;
-//         Ok(())
-//     }
-// }
 impl Stream {
     pub fn sha1_value(&mut self) -> Vec<u8> {
         self.data.borrow_mut().sha1_value()
@@ -686,7 +563,17 @@ impl Read for Stream {
 }
 impl Write for Stream {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.data.borrow_mut().write(buf)
+        let position = self.stream_position()?;
+        let bytes = self.data.borrow_mut().write(buf)?;
+        if *self.length.borrow() == position {
+            *self.length.borrow_mut() += bytes as u64;
+        } else {
+            if position + bytes as u64 > *self.length.borrow() {
+                // 如果写入的数据超出了当前流的长度，更新流的长度
+                *self.length.borrow_mut() = position + bytes as u64;
+            }
+        }
+        Ok(bytes)
     }
 
     fn flush(&mut self) -> io::Result<()> {
