@@ -6,21 +6,21 @@ use std::io::{Error, ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::RangeBounds;
 use std::{io, ops};
 
-pub trait StreamSized: Any + Sized {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-impl StreamSized for bool {}
-impl StreamSized for u8 {}
-impl StreamSized for u16 {}
-impl StreamSized for u32 {}
-impl StreamSized for u64 {}
-impl StreamSized for f32 {}
-impl StreamSized for f64 {}
-impl StreamSized for String {}
-impl StreamSized for usize {}
-impl StreamSized for isize {}
+// pub trait StreamSized: Any + Sized {
+//     fn as_any(&self) -> &dyn Any {
+//         self
+//     }
+// }
+// impl StreamSized for bool {}
+// impl StreamSized for u8 {}
+// impl StreamSized for u16 {}
+// impl StreamSized for u32 {}
+// impl StreamSized for u64 {}
+// impl StreamSized for f32 {}
+// impl StreamSized for f64 {}
+// impl StreamSized for String {}
+// impl StreamSized for usize {}
+// impl StreamSized for isize {}
 
 #[allow(dead_code)]
 pub trait ValueRead: Sized {
